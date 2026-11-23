@@ -3,74 +3,113 @@ local AisleRoutes = require(script.Parent.AisleRoutes)
 local Shoppers = {}
 Shoppers.__index = Shoppers
 
-local QUESTIONS = {
-	"Excuse me! Where's the oat milk?",
-	"Is this price for two?",
-	"Do you work here?",
-	"Which aisle has batteries?",
-	"Can I return a toaster here?",
-	"Where did the cereal go?",
-	"Is register three open?",
+local ServerStorage = game:GetService("ServerStorage")
+local rig = ServerStorage:WaitForChild("ShopperRig")
+
+local scenes = {
+	{ "Hey! Where’s the milk?", "Coolers at the back.", "Thanks. I walked right past it!" },
+	{ "Is this price for two?", "Check the yellow tag.", "Oh! I see it now." },
+	{ "Which aisle has batteries?", "Try aisle five.", "Great. Thanks!" },
+	{ "Can I return this toaster?", "Try the pickup desk.", "Got it. Thanks!" },
+	{ "Where’s the cereal?", "Try the pantry aisle.", "That was quick. Thanks!" },
+	{ "Is register three open?", "Look for the green light.", "Found it. Thanks!" },
+	{ "Where did the apples go?", "Try the fruit bins.", "I’ll look there. Thanks!" },
 }
 
-local COLORS = {
-	Color3.fromRGB(224, 130, 89), Color3.fromRGB(100, 155, 132),
-	Color3.fromRGB(150, 114, 190), Color3.fromRGB(205, 112, 142),
-	Color3.fromRGB(223, 168, 85), Color3.fromRGB(106, 154, 200),
-}
-
-local SKIN = {
-	Color3.fromRGB(234, 181, 142), Color3.fromRGB(172, 115, 82),
-	Color3.fromRGB(121, 77, 65), Color3.fromRGB(244, 204, 173),
-}
-
-local INK = Color3.fromRGB(34, 49, 75)
-local GOLD = Color3.fromRGB(255, 220, 104)
+local names = { "Sam", "Jo", "Ari", "Lee", "Max", "Kim", "Ray", "Pat" }
+local rgb = Color3.fromRGB
+local shirts = { rgb(210, 84, 64), rgb(64, 146, 98), rgb(143, 106, 190), rgb(244, 172, 80), rgb(81, 141, 190), rgb(207, 107, 147) }
+local skins = { rgb(239, 188, 151), rgb(171, 112, 77), rgb(120, 77, 65), rgb(242, 208, 175) }
+local hair = { rgb(58, 43, 55), rgb(84, 55, 40), rgb(218, 153, 70), rgb(222, 221, 207) }
+local shoes = rgb(30, 49, 78)
 
 local function shopperModel(parent, id, position)
-	local model = Instance.new("Model")
-	model.Name = "Shopper " .. id
-	local shirt = COLORS[(id - 1) % #COLORS + 1]
-	local skin = SKIN[(id - 1) % #SKIN + 1]
-
-	local function part(name, size, offset, color)
-		local item = Instance.new("Part")
-		item.Name, item.Size, item.Color = name, size, color
-		item.CFrame = CFrame.new(position + offset)
-		item.Anchored, item.CanCollide, item.CanTouch, item.CanQuery = true, false, false, false
-		item.CastShadow = false
-		item.Parent = model
-		return item
+	local model = rig:Clone()
+	model.Name = names[(id - 1) % #names + 1]
+	local shirt = shirts[(id - 1) % #shirts + 1]
+	local skin = skins[(id - 1) % #skins + 1]
+	local style = (id - 1) % 4
+	for _, limb in model:GetChildren() do
+		if limb:IsA("BasePart") then
+			limb.CanCollide, limb.CanTouch, limb.CanQuery = false, false, false
+			limb.CastShadow = true
+			limb.Massless = limb ~= model.PrimaryPart
+			limb.Color = if limb.Name == "Torso" then shirt elseif string.find(limb.Name, "Leg") then shoes else skin
+		end
 	end
+	model.PrimaryPart.Anchored = true
+	model.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	model.Humanoid.EvaluateStateMachine = false
 
-	local root = part("Root", Vector3.one, Vector3.zero, INK)
-	root.Transparency = 1
-	model.PrimaryPart = root
-	part("Torso", Vector3.new(1.52, 1.55, .88), Vector3.new(0, 2.25, 0), shirt)
-	local head = part("Head", Vector3.new(1.15, 1.06, .93), Vector3.new(0, 3.52, 0), skin)
-	part("Hair", Vector3.new(1.21, .28, .96), Vector3.new(0, 4.01, 0), INK)
-	part("Eyes", Vector3.new(.48, .12, .033), Vector3.new(0, 3.58, -.48), INK)
-	local limbs = {}
-	for _, side in { -1, 1 } do
-		local arm = part("Arm", Vector3.new(.47, 1.37, .65), Vector3.new(side * 1.0, 2.29, 0), shirt)
-		local leg = part("Leg", Vector3.new(.60, 1.40, .68), Vector3.new(side * .4, .77, 0), INK)
-		table.insert(limbs, { arm = arm, leg = leg, side = side })
+	local head = model.Head
+	local function wear(name, size, at, color)
+		local piece = Instance.new("Part")
+		piece.Name, piece.Size, piece.CFrame, piece.Color = name, size, head.CFrame * CFrame.new(at), color
+		piece.CanCollide, piece.CanTouch, piece.CanQuery = false, false, false
+		piece.Massless = true
+		piece.Parent = head
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1, weld.Parent = head, piece, piece
 	end
-
-	local indicator = Instance.new("BillboardGui")
-	indicator.Name = "QuestionMark"
-	indicator.Size = UDim2.fromOffset(28, 32)
-	indicator.StudsOffsetWorldSpace = Vector3.new(0, 1.08, 0)
-	indicator.MaxDistance = 70
-	indicator.Parent = head
-	local label = Instance.new("TextLabel")
-	label.Size, label.BackgroundTransparency = UDim2.fromScale(1, 1), 1
-	label.Font, label.TextSize, label.Text = Enum.Font.GothamBlack, 24, "?"
-	label.TextColor3, label.TextStrokeTransparency = GOLD, .36
-	label.Parent = indicator
-
+	local hairColor = hair[(id - 1) % #hair + 1]
+	wear("Hair", Vector3.new(1.36, .29, 1.16), Vector3.new(0, .56, .04), hairColor)
+	if style == 0 then
+		wear("Cap", Vector3.new(1.45, .24, 1.19), Vector3.new(0, .65, .02), shirt)
+		wear("Cap Brim", Vector3.new(1.10, .09, .58), Vector3.new(0, .55, -.67), shirt)
+	elseif style == 1 then
+		wear("Hair Back", Vector3.new(1.28, .97, .24), Vector3.new(0, .21, .53), hairColor)
+	elseif style == 2 then
+		local dark = rgb(45, 57, 82)
+		wear("Glasses Bridge", Vector3.new(.88, .085, .07), Vector3.new(0, .11, -.64), dark)
+		for _, x in { -.28, .28 } do
+			wear("Glasses Frame", Vector3.new(.39, .26, .09), Vector3.new(x, .11, -.67), dark)
+			wear("Lens", Vector3.new(.28, .15, .04), Vector3.new(x, .11, -.716), rgb(136, 187, 214))
+		end
+	else
+		wear("Hair Bun", Vector3.new(.67, .56, .55), Vector3.new(.29, .73, .39), hairColor)
+	end
+	model:PivotTo(CFrame.new(position + Vector3.new(0, 3, 0)))
 	model.Parent = parent
-	return model, limbs
+	local joints = {}
+	for _, jointName in { "Left Hip", "Right Hip", "Left Shoulder", "Right Shoulder" } do
+		local motor = model.Torso[jointName]
+		joints[jointName] = { motor = motor, rest = motor.C0 }
+	end
+	return model, joints
+end
+
+local function turn(binding, angle, yaw)
+	binding.motor.C0 = CFrame.new(binding.rest.Position) * CFrame.Angles(angle, yaw or 0, 0) * binding.rest.Rotation
+end
+
+local function pose(shopper, origin, swing)
+	local position = shopper.position + origin + Vector3.new(0, 3, 0)
+	shopper.model:PivotTo(CFrame.lookAt(position, position + shopper.facing))
+	local joints = shopper.joints
+	turn(joints["Left Hip"], swing)
+	turn(joints["Right Hip"], -swing)
+	turn(joints["Left Shoulder"], -swing)
+	turn(joints["Right Shoulder"], swing + (shopper.speaking and .34 or 0))
+end
+
+function Shoppers:stop(shopper, workerPosition)
+	shopper.speaking = true
+	local flat = Vector3.new(workerPosition.X, 0, workerPosition.Z) - self.origin
+	local face = flat - shopper.position
+	if face.Magnitude > .01 then
+		if face.Magnitude < 2.7 then
+			local proposed = flat - face.Unit * 2.7
+			if self.routes:clear(shopper.position, proposed) then shopper.position = proposed end
+		end
+		shopper.facing = face.Unit
+	end
+	pose(shopper, self.origin, 0)
+end
+
+function Shoppers:resume(shopper, now)
+	shopper.speaking = false
+	shopper.restUntil, shopper.planAt = now + 4, now + .12
+	shopper.route, shopper.routeIndex = {}, 1
 end
 
 function Shoppers.new(parent, layout, random, count, speed, now, origin)
@@ -79,11 +118,12 @@ function Shoppers.new(parent, layout, random, count, speed, now, origin)
 	local offset = random:NextInteger(1, #nodes)
 	for index = 1, count do
 		local position = nodes[(offset + index * 5) % #nodes + 1]
-		local model, limbs = shopperModel(parent, index, position + origin)
+		if index > #nodes then position += Vector3.new(2.4, 0, 2.4) end
+		local model, joints = shopperModel(parent, index, position + origin)
 		table.insert(self.list, {
-			model = model, limbs = limbs, position = position, route = {}, routeIndex = 1,
+			model = model, joints = joints, position = position, route = {}, routeIndex = 1,
 			facing = Vector3.new(0, 0, -1), patrol = nil, plannedDestination = nil, planAt = now + index * .019,
-			restUntil = 0, stride = 0,
+			restUntil = now + 2.5 + (index % 5) * .25, stride = 0,
 		})
 	end
 	return self
@@ -91,6 +131,7 @@ end
 
 function Shoppers:step(dt, now, workers, catch)
 	for _, shopper in self.list do
+		if shopper.speaking then continue end
 		if now >= shopper.planAt then
 			local nearest, distance = nil, 34
 			if now >= shopper.restUntil then
@@ -102,12 +143,11 @@ function Shoppers:step(dt, now, workers, catch)
 					end
 				end
 			end
-			if nearest and distance <= 4.6 and self.routes:clear(shopper.position, nearest.position) then
-				local question = QUESTIONS[self.random:NextInteger(1, #QUESTIONS)]
-				if catch(nearest.player, question, now) then
+			if nearest and distance <= 4.35 and self.routes:clear(shopper.position, nearest.position) then
+				local lines = scenes[self.random:NextInteger(1, #scenes)]
+				if catch(nearest.player, shopper, lines, now) then
 					nearest.eligible = false
-					shopper.restUntil = now + 4
-					nearest = nil
+					continue
 				end
 			end
 			local destination
@@ -144,14 +184,7 @@ function Shoppers:step(dt, now, workers, catch)
 			shopper.facing = facing
 		end
 
-		local position = shopper.position + self.origin
-		local pose = CFrame.lookAt(position, position + shopper.facing)
-		shopper.model:PivotTo(pose)
-		local swing = if target then math.sin(shopper.stride) * .40 else 0
-		for _, limb in shopper.limbs do
-			limb.leg.CFrame = pose * CFrame.new(limb.side * .4, 1.41, 0) * CFrame.Angles(swing * limb.side, 0, 0) * CFrame.new(0, -.64, 0)
-			limb.arm.CFrame = pose * CFrame.new(limb.side, 2.88, 0) * CFrame.Angles(-swing * limb.side, 0, 0) * CFrame.new(0, -.59, 0)
-		end
+		pose(shopper, self.origin, if target then math.sin(shopper.stride) * .45 else 0)
 	end
 end
 

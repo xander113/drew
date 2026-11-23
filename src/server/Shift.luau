@@ -6,6 +6,7 @@ local shared = ReplicatedStorage:WaitForChild("CartCatcher")
 local Config = require(shared.Config)
 local Layout = require(shared.Layout)
 local Pay = require(shared.Pay)
+local Timing = require(shared.RescueTiming)
 local Carts = require(script.Parent.Carts)
 local Shoppers = require(script.Parent.Shoppers)
 
@@ -51,22 +52,16 @@ function Shift.place(player, station, active)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	badge(player, active)
-	humanoid.WalkSpeed = Config.WalkSpeed
+	humanoid.WalkSpeed, humanoid.AutoRotate = Config.WalkSpeed, true
 	root.Anchored = not active
 end
 
-local function clearQuestion(player, entry)
-	entry.questionUntil, entry.questionCooldown = 0, 0
-	player:SetAttribute("QuestionUntil", 0)
-	player:SetAttribute("Question", "")
-end
-
-local function updateSpeed(entry, humanoid, now)
-	local speed = if now < entry.questionUntil then Config.QuestionSpeed elseif entry.cart then Config.PushSpeed else Config.WalkSpeed
+local function updateSpeed(entry, humanoid)
+	local speed = if entry.stop then 0 elseif entry.cart then Config.PushSpeed else Config.WalkSpeed
 	if humanoid.WalkSpeed ~= speed then humanoid.WalkSpeed = speed end
 end
 
-function Shift.new(room, arena, origin, now)
+function Shift.new(room, arena, origin, now, effects)
 	local settings = Config.shift(room.level, #room.members)
 	local markers = arena.Markers
 	local objects = Instance.new("Folder")
@@ -78,19 +73,18 @@ function Shift.new(room, arena, origin, now)
 	local self = setmetatable({
 		id = HttpService:GenerateGUID(false), level = room.level, deadline = 0, goal = settings.goal,
 		banked = 0, entries = {}, objects = objects, bay = markers.CartHole, origin = origin, ray = ray,
-		questionSeconds = settings.questionSeconds, workers = #room.members,
+		effects = effects, difficulty = Config.Levels[room.level], random = Random.new(), serial = 0,
 	}, Shift)
-	local random = Random.new()
-	self.carts = Carts.new(objects, Layout, random, function(player, item)
+	self.carts = Carts.new(objects, Layout, self.random, function(player, item)
 		self:pickup(player, item)
 	end, settings.carts, settings.goal, origin)
-	self.shoppers = Shoppers.new(objects, Layout, random, settings.shoppers, settings.speed, now, origin)
+	self.shoppers = Shoppers.new(objects, Layout, self.random, settings.shoppers, settings.speed, now, origin)
 	for index, player in room.members do
-		local entry = { station = markers["Worker" .. index], delivered = 0, pickupAt = 0 }
+		local entry = { station = markers["Worker" .. index], delivered = 0, pickupAt = 0, safeUntil = 0, rescueAt = 0 }
 		self.entries[player] = entry
 		player:SetAttribute("CarryingCart", false)
 		player:SetAttribute("ReturnedCarts", 0)
-		clearQuestion(player, entry)
+		player:SetAttribute("Stopped", false)
 		Shift.place(player, entry.station, true)
 	end
 	self.deadline = Workspace:GetServerTimeNow() + settings.seconds
@@ -102,9 +96,9 @@ function Shift:spawn(player)
 	if entry then Shift.place(player, entry.station, true) end
 end
 
-function Shift:release(player, entry, returned)
+function Shift:release(player, entry, dock)
 	if entry.cart then
-		self.carts:release(entry.cart, returned)
+		self.carts:release(entry.cart, dock)
 		entry.cart = nil
 		player:SetAttribute("CarryingCart", false)
 	end
@@ -113,8 +107,10 @@ end
 function Shift:reset(player)
 	local entry = self.entries[player]
 	if not entry then return end
-	self:release(player, entry, false)
-	clearQuestion(player, entry)
+	self:release(player, entry)
+	self:endStop(player, entry, "Gone", Workspace:GetServerTimeNow())
+	self:endRescue(player, entry, "Lost")
+	entry.safeUntil = Workspace:GetServerTimeNow() + 3
 end
 
 function Shift:remove(player)
@@ -125,9 +121,9 @@ end
 function Shift:pickup(player, item)
 	local now = Workspace:GetServerTimeNow()
 	local entry = self.entries[player]
-	if not entry or now >= self.deadline or now < entry.pickupAt then return end
+	if not entry or self.wonAt or now >= self.deadline or now < entry.pickupAt then return end
 	entry.pickupAt = now + .15
-	if entry.cart or item.carrier or not item.prompt.Enabled or now < entry.questionUntil then return end
+	if entry.cart or entry.stop or item.carrier or not item.prompt.Enabled then return end
 	local root, humanoid = alive(player)
 	if not root then return end
 	local delta = item.model.PrimaryPart.Position - root.Position
@@ -138,22 +134,117 @@ function Shift:pickup(player, item)
 		local leg = player.Character:FindFirstChild("Left Leg")
 		offset += if leg then leg.Size.Y else 2
 	end
-	self.carts:claim(item, player, root, offset)
+	local position = item.model.PrimaryPart.Position
+	self.carts:claim(item, player, root, offset, now)
 	entry.cart = item
 	player:SetAttribute("CarryingCart", true)
-	updateSpeed(entry, humanoid, now)
+	updateSpeed(entry, humanoid)
+	self.effects:FireClient(player, "Grab", { position = position })
 end
 
-function Shift:question(player, text, now)
+function Shift:broadcast(kind, payload)
+	for player in self.entries do self.effects:FireClient(player, kind, payload) end
+end
+
+function Shift:question(player, shopper, lines, now)
 	local entry = self.entries[player]
-	if not entry or now < entry.questionCooldown then return false end
-	entry.questionUntil = now + self.questionSeconds
-	entry.questionCooldown = entry.questionUntil + Config.QuestionCooldown
-	player:SetAttribute("Question", text)
-	player:SetAttribute("QuestionUntil", entry.questionUntil)
-	local _, humanoid = alive(player)
-	if humanoid then updateSpeed(entry, humanoid, now) end
+	if not entry or entry.stop or entry.rescue or now < entry.safeUntil or self.deadline - now < 2 then return false end
+	local root, humanoid = alive(player)
+	if not root or root.Anchored or root.Position.Y - self.origin.Y > 4.6 then return false end
+	local direction = shopper.model.PrimaryPart.Position - root.Position
+	if Workspace:Raycast(root.Position, direction, self.ray) then return false end
+
+	self.shoppers:stop(shopper, root.Position)
+	local at = root.Position
+	local target = shopper.model.PrimaryPart.Position
+	local flat = Vector3.new(target.X - at.X, 0, target.Z - at.Z)
+	if flat.Magnitude > .01 then root.CFrame = CFrame.lookAt(at, at + flat) end
+	root.Anchored = true
+	root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+	humanoid.AutoRotate = false
+	self.serial += 1
+	local untilTime = math.min(self.deadline, now + self.difficulty.stopSeconds)
+	entry.stop = { id = self.serial, shopper = shopper, started = now, untilTime = untilTime, root = root, humanoid = humanoid }
+	updateSpeed(entry, humanoid)
+	player:SetAttribute("Stopped", true)
+	self:broadcast("Stopped", {
+		id = entry.stop.id, worker = player, shopper = shopper.model,
+		lines = lines, name = shopper.model.Name, start = now, finish = untilTime,
+	})
 	return true
+end
+
+function Shift:endRescue(player, entry, outcome)
+	local attempt = entry.rescue
+	if not attempt then return end
+	entry.rescue = nil
+	self.effects:FireClient(player, "RescueEnd", { id = attempt.id, outcome = outcome })
+end
+
+function Shift:endStop(player, entry, outcome, now)
+	local stop = entry.stop
+	if not stop then return end
+	entry.stop, entry.safeUntil = nil, now + Config.QuestionCooldown
+	if stop.root.Parent and stop.root.Parent == player.Character then
+		stop.humanoid.AutoRotate = true
+		updateSpeed(entry, stop.humanoid)
+		stop.root.Anchored = false
+	end
+	player:SetAttribute("Stopped", false)
+	self.shoppers:resume(stop.shopper, now)
+	for helper, helperEntry in self.entries do
+		if helperEntry.rescue and helperEntry.rescue.stop == stop then self:endRescue(helper, helperEntry, "Lost") end
+	end
+	self:broadcast("Freed", { id = stop.id, worker = player, outcome = outcome })
+end
+
+function Shift:near(helper, target)
+	local root = alive(helper)
+	local targetRoot = alive(target)
+	if not root or not targetRoot then return false end
+	local offset = targetRoot.Position - root.Position
+	local gap = offset.Magnitude
+	return gap <= Config.RescueDistance and (gap < .01 or Workspace:Raycast(root.Position, offset, self.ray) == nil)
+end
+
+function Shift:rescue(player, action, target, now)
+	local entry = self.entries[player]
+	if not entry or entry.stop or self.wonAt or now >= self.deadline or now < entry.rescueAt then return end
+	entry.rescueAt = now + .12
+	if action == "Begin" then
+		local victim = self.entries[target]
+		local stop = victim and victim.stop
+		if entry.rescue or not stop or target == player or not self:near(player, target) then return end
+		local pattern = Timing.build(self.difficulty, now, self.random)
+		if pattern.start + #pattern.cues * pattern.period > stop.untilTime then
+			self.effects:FireClient(player, "RescueNote", "Too late to help.")
+			return
+		end
+		self.serial += 1
+		local attempt = { id = self.serial, step = 1, target = target, stop = stop, pattern = pattern }
+		entry.rescue = attempt
+		self.effects:FireClient(player, "RescueStart", { id = attempt.id, pattern = pattern })
+	elseif action == "Tap" then
+		local attempt = entry.rescue
+		if not attempt or target ~= attempt.id then return end
+		local victim = self.entries[attempt.target]
+		if not victim or victim.stop ~= attempt.stop or not self:near(player, attempt.target) then
+			self:endRescue(player, entry, "Lost")
+			return
+		end
+		if now < attempt.pattern.start then return end
+		if not Timing.hit(attempt.pattern, attempt.step, now, player:GetNetworkPing()) then
+			self:endRescue(player, entry, "Miss")
+			return
+		end
+		attempt.step += 1
+		if attempt.step > #attempt.pattern.cues then
+			self:endRescue(player, entry, "Hit")
+			self:endStop(attempt.target, victim, "Helped", now)
+		else
+			self.effects:FireClient(player, "RescueStep", { id = attempt.id, step = attempt.step })
+		end
+	end
 end
 
 local function inBay(bay, position)
@@ -163,31 +254,50 @@ local function inBay(bay, position)
 end
 
 function Shift:step(dt, now)
+	if self.wonAt then return if now >= self.wonAt then "Filled" else nil, false end
 	if now >= self.deadline then return "Time", false end
 	local workers = {}
 	local changed = false
 	for player, entry in self.entries do
+		if entry.stop and now >= entry.stop.untilTime then self:endStop(player, entry, "Done", now) end
+		local attempt = entry.rescue
+		if attempt then
+			if not self:near(player, attempt.target) then
+				self:endRescue(player, entry, "Lost")
+			elseif Timing.slot(attempt.pattern, attempt.step, now - .16) >= 1 then
+				self:endRescue(player, entry, "Miss")
+			end
+		end
 		local root, humanoid = alive(player)
 		if not root then continue end
-		if entry.cart and inBay(self.bay, root.Position) then
-			self:release(player, entry, true)
+		local cart = entry.cart
+		if cart and not entry.stop and (inBay(self.bay, root.Position) or inBay(self.bay, cart.model.PrimaryPart.Position)) then
+			local dockX = math.clamp(root.Position.X, self.bay.Position.X - 10, self.bay.Position.X + 10)
+			local dock = Vector3.new(dockX, self.origin.Y + .68, self.bay.Position.Z + 2.5)
+			self:release(player, entry, dock)
 			entry.delivered += 1
 			player:SetAttribute("ReturnedCarts", entry.delivered)
 			self.banked += 1
 			changed = true
-			if self.banked >= self.goal then return "Filled", true end
+			local full = self.banked >= self.goal
+			self:broadcast("Returned", { worker = player, position = dock, full = full })
+			if full then
+				self.wonAt = now + 1.05
+				for worker, workerEntry in self.entries do self:endStop(worker, workerEntry, "Gone", now) end
+				return nil, true
+			end
 		end
-		updateSpeed(entry, humanoid, now)
+		updateSpeed(entry, humanoid)
 		local position = root.Position - self.origin
 		if position.Y > 0 and position.Y < 9 and math.abs(position.X) < 85 and position.Z >= -69 then
 			table.insert(workers, {
 				player = player, position = Vector3.new(position.X, 0, position.Z),
-				eligible = now >= entry.questionCooldown,
+				eligible = not entry.stop and not entry.rescue and now >= entry.safeUntil,
 			})
 		end
 	end
-	self.shoppers:step(dt, now, workers, function(player, text, time)
-		return self:question(player, text, time)
+	self.shoppers:step(dt, now, workers, function(player, shopper, lines, time)
+		return self:question(player, shopper, lines, time)
 	end)
 	return nil, changed
 end
@@ -199,7 +309,8 @@ function Shift:finish(crew, wallet)
 		results[player] = { carts = entry.delivered, pay = pay }
 		wallet:earn(player, self.id, pay.total)
 		player:SetAttribute("CarryingCart", false)
-		clearQuestion(player, entry)
+		self:endStop(player, entry, "Gone", Workspace:GetServerTimeNow())
+		self:endRescue(player, entry, "Lost")
 		Shift.place(player, crew, false)
 	end
 	self:destroy()

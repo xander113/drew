@@ -23,6 +23,10 @@ local request = Instance.new("RemoteFunction")
 request.Name = "LobbyRequest"
 local changed = Instance.new("RemoteEvent")
 changed.Name = "LobbyChanged"
+local effects = Instance.new("RemoteEvent")
+effects.Name = "ShiftEffects"
+local rescue = Instance.new("RemoteEvent")
+rescue.Name = "RescueInput"
 
 local collisionGroup = "WWMSWorker"
 if not PhysicsService:IsCollisionGroupRegistered(collisionGroup) then PhysicsService:RegisterCollisionGroup(collisionGroup) end
@@ -146,7 +150,7 @@ end
 local function startShift(room, now)
 	local arena, origin, slot = buildArena()
 	room.arena, room.slot = arena, slot
-	room.shift = Shift.new(room, arena, origin, now)
+	room.shift = Shift.new(room, arena, origin, now, effects)
 	room.phase = "Active"
 	sendRoom(room)
 end
@@ -383,6 +387,14 @@ TeleportService.TeleportInitFailed:Connect(function(player)
 	send(entry)
 end)
 
+rescue.OnServerEvent:Connect(function(player, action, target)
+	local entry = players[player]
+	local shift = entry and entry.room and entry.room.shift
+	if shift then shift:rescue(player, action, target, Workspace:GetServerTimeNow()) end
+end)
+
+effects.Parent = shared
+rescue.Parent = shared
 changed.Parent = shared
 request.Parent = shared
 

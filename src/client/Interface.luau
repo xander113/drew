@@ -434,7 +434,7 @@ function Interface:showPage(route, model, actions)
 	if selectedKey and self.controls[selectedKey] then GuiService.SelectedObject = self.controls[selectedKey] end
 end
 
-function Interface:showShift(room, seconds, personal, carrying, question, input)
+function Interface:showShift(room, seconds, personal, carrying, input)
 	self.hudLevel.Text = self.config.Levels[room.level].name
 	self.progress.Text = string.format("Carts %d/%d", room.banked, room.goal)
 	self.timer.Text, self.timer.TextColor3 = clock(seconds), if seconds <= 15 then RED else INK
@@ -445,9 +445,7 @@ function Interface:showShift(room, seconds, personal, carrying, question, input)
 		self.ratio = ratio
 	end
 	self.personal.Text = "Your carts: " .. personal
-	if question then
-		self.tipTitle.Text, self.tipText.Text = "Shopper stopped you", question
-	elseif carrying then
+	if carrying then
 		self.tipTitle.Text, self.tipText.Text = "Bring it back", "Push the cart into the blue cart hole."
 	else
 		self.tipTitle.Text = "Find a cart"

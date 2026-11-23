@@ -1,3 +1,5 @@
+local TweenService = game:GetService("TweenService")
+
 local Carts = {}
 Carts.__index = Carts
 
@@ -6,7 +8,7 @@ local METAL = Color3.fromRGB(164, 184, 200)
 local TIRE = Color3.fromRGB(28, 44, 66)
 local GOLD = Color3.fromRGB(255, 205, 60)
 
-local function build(parent, frame, withPrompt)
+local function build(parent, frame)
 	local model = Instance.new("Model")
 	model.Name = "Shopping Cart"
 
@@ -18,7 +20,6 @@ local function build(parent, frame, withPrompt)
 		part.Color = color
 		part.Material = Enum.Material.SmoothPlastic
 		part.Shape = shape or Enum.PartType.Block
-		part.Anchored = withPrompt
 		part.CanCollide = false
 		part.CanTouch = false
 		part.CanQuery = false
@@ -30,6 +31,7 @@ local function build(parent, frame, withPrompt)
 
 	local root = piece("Chassis", Vector3.new(2.45, .15, 3.55), Vector3.new(0, .68, 0), BLUE)
 	model.PrimaryPart = root
+	root.Anchored = true
 	piece("Basket Base", Vector3.new(2.55, .14, 2.85), Vector3.new(0, 1.48, -.17), METAL)
 	piece("Handle", Vector3.new(3.05, .26, .26), Vector3.new(0, 2.65, 1.76), GOLD)
 	piece("Front Lip", Vector3.new(2.7, .21, .2), Vector3.new(0, 2.43, -1.65), BLUE)
@@ -44,37 +46,34 @@ local function build(parent, frame, withPrompt)
 		piece("Side Rail", Vector3.new(.18, .21, 3), Vector3.new(sign * 1.28, 2.43, -.18), BLUE)
 	end
 
-	local prompt
-	if withPrompt then
-		prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Grab cart"
-		prompt.ObjectText = "Shopping cart"
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
-		prompt.MaxActivationDistance = 8
-		prompt.RequiresLineOfSight = true
-		prompt.Parent = root
-		local beacon = Instance.new("BillboardGui")
-		beacon.Name = "CartMarker"
-		beacon.Size = UDim2.fromOffset(18, 18)
-		beacon.StudsOffsetWorldSpace = Vector3.new(0, 3.05, 0)
-		beacon.MaxDistance = 92
-		beacon.AlwaysOnTop = false
-		beacon.Parent = root
-		local diamond = Instance.new("Frame")
-		diamond.AnchorPoint, diamond.Position = Vector2.new(.5, .5), UDim2.fromScale(.5, .5)
-		diamond.Size = UDim2.fromOffset(10, 10)
-		diamond.Rotation, diamond.BorderSizePixel, diamond.BackgroundColor3 = 45, 0, GOLD
-		diamond.Parent = beacon
-	else
-		for _, part in model:GetChildren() do
-			if part ~= root then
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0, weld.Part1 = root, part
-				weld.Parent = part
-			end
+	for _, part in model:GetChildren() do
+		if part ~= root then
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0, weld.Part1 = root, part
+			weld.Parent = part
 		end
 	end
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Grab cart"
+	prompt.ObjectText = "Shopping cart"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
+	prompt.MaxActivationDistance = 8
+	prompt.RequiresLineOfSight = true
+	prompt.Parent = root
+	local beacon = Instance.new("BillboardGui")
+	beacon.Name = "CartMarker"
+	beacon.Size = UDim2.fromOffset(18, 18)
+	beacon.StudsOffsetWorldSpace = Vector3.new(0, 3.05, 0)
+	beacon.MaxDistance = 68
+	beacon.AlwaysOnTop = false
+	beacon.Parent = root
+	local diamond = Instance.new("Frame")
+	diamond.AnchorPoint, diamond.Position = Vector2.new(.5, .5), UDim2.fromScale(.5, .5)
+	diamond.Size = UDim2.fromOffset(10, 10)
+	diamond.Rotation, diamond.BorderSizePixel, diamond.BackgroundColor3 = 45, 0, GOLD
+	diamond.Parent = beacon
 
 	model.Parent = parent
 	return model, prompt
@@ -88,7 +87,7 @@ local function shuffle(random, items)
 end
 
 function Carts.new(parent, layout, random, onPickup, count, goal, origin)
-	local self = setmetatable({ items = {}, parent = parent }, Carts)
+	local self = setmetatable({ items = {} }, Carts)
 	local front = {}
 	for _, position in {
 		Vector3.new(-51, 0, 43), Vector3.new(-45, 0, 42), Vector3.new(-38, 0, 43),
@@ -101,7 +100,8 @@ function Carts.new(parent, layout, random, onPickup, count, goal, origin)
 	local frontAisles, middle, far = {}, {}, {}
 	for lane, x in layout.LaneX do
 		for _, z in layout.CartZ do
-			local position = Vector3.new(x + (lane % 2 == 0 and 3.1 or -3.1), 0, z)
+			local side = if lane == 1 or lane % 2 == 0 then 3.1 else -3.1
+			local position = Vector3.new(x + side, 0, z)
 			local pool = if z < -17 then far elseif x < 3 and z >= 19 then frontAisles else middle
 			table.insert(pool, position)
 		end
@@ -123,8 +123,8 @@ function Carts.new(parent, layout, random, onPickup, count, goal, origin)
 	for index = 1, count do
 		local position = if index > count - backCount then far[index - count + backCount] else positions[index]
 		local frame = CFrame.new(position + origin) * CFrame.Angles(0, math.rad(random:NextInteger(-35, 35)), 0)
-		local model, prompt = build(parent, frame, true)
-		local item = { model = model, carrier = nil, pushed = nil, prompt = prompt }
+		local model, prompt = build(parent, frame)
+		local item = { model = model, parked = model:GetPivot(), prompt = prompt }
 		table.insert(self.items, item)
 		prompt.Triggered:Connect(function(player)
 			onPickup(player, item)
@@ -133,36 +133,58 @@ function Carts.new(parent, layout, random, onPickup, count, goal, origin)
 	return self
 end
 
-function Carts:claim(item, player, characterRoot, groundOffset)
+function Carts:claim(item, player, characterRoot, groundOffset, now)
+	local model = item.model
+	local root = model.PrimaryPart
 	item.carrier = player
-	item.prompt.Enabled = false
-	item.model.Parent = nil
-	local model = build(nil, characterRoot.CFrame * CFrame.new(0, -groundOffset, -3.5), false)
-	local joint = Instance.new("WeldConstraint")
-	joint.Part0, joint.Part1 = characterRoot, model.PrimaryPart
-	joint.Parent = model.PrimaryPart
-	item.pushed = model
-	model.Parent = self.parent
+	item.prompt.Enabled, root.CartMarker.Enabled = false, false
+	model:SetAttribute("GrabFrom", root.CFrame)
+	model:SetAttribute("GrabAt", now)
+	local joint = Instance.new("Motor6D")
+	joint.Name = "PushJoint"
+	joint.Part0, joint.Part1 = characterRoot, root
+	joint.C0 = CFrame.new(0, .68 - groundOffset, -3.3)
+	model:PivotTo(characterRoot.CFrame * joint.C0)
+	joint.Parent = root
+	root.Anchored = false
+	model:AddTag("WWMSPushedCart")
+	item.joint = joint
 end
 
-function Carts:release(item, returned)
-	if item.pushed then
-		item.pushed:Destroy()
-		item.pushed = nil
+function Carts:release(item, dock)
+	local model = item.model
+	local root = model.PrimaryPart
+	local from = root.CFrame
+	model:RemoveTag("WWMSPushedCart")
+	if item.joint then item.joint:Destroy() end
+	item.joint, item.carrier = nil, nil
+	root.Anchored = true
+	model:PivotTo(from)
+	if not dock then
+		model:PivotTo(item.parked)
+		item.prompt.Enabled, root.CartMarker.Enabled = true, true
+		return
 	end
-	item.carrier = nil
-	if returned then
-		item.model:Destroy()
+
+	local destination = CFrame.lookAt(dock, dock + Vector3.zAxis)
+	local hop = TweenService:Create(root, TweenInfo.new(.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		CFrame = destination + Vector3.new(0, 1.05, 0),
+	})
+	hop:Play()
+	task.delay(.26, function()
+		if not model.Parent then return end
+		TweenService:Create(root, TweenInfo.new(.34, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			CFrame = destination - Vector3.new(0, 2.75, 0),
+		}):Play()
+	end)
+	task.delay(.64, function()
+		if model.Parent then model:Destroy() end
 		item.model = nil
-	else
-		item.model.Parent = self.parent
-		item.prompt.Enabled = true
-	end
+	end)
 end
 
 function Carts:destroy()
 	for _, item in self.items do
-		if item.pushed then item.pushed:Destroy() end
 		if item.model then item.model:Destroy() end
 	end
 	table.clear(self.items)

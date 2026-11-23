@@ -21,6 +21,12 @@
     },
     "ReplicatedStorage": { "CartCatcher": { "$path": "src/shared" } },
     "ServerScriptService": { "CartCatcher": { "$path": "src/server" } },
-    "StarterPlayer": { "StarterPlayerScripts": { "CartCatcher": { "$path": "src/client" } } }
+    "ServerStorage": { "ShopperRig": { "$path": "world/R6.rbxm" } },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$properties": { "GameSettingsAvatar": "R6" },
+      "StarterCharacter": { "$path": "world/R6.rbxm" },
+      "StarterPlayerScripts": { "CartCatcher": { "$path": "src/client" } }
+    }
   }
 }

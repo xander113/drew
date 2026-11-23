@@ -1,19 +1,18 @@
 local levels = {
-	table.freeze({ name = "Easy", seconds = 125, baseCarts = 4, teamCarts = 22, shoppers = 4, additionalShoppers = 5, speed = 8, questionSeconds = 2, payPercent = 100 }),
-	table.freeze({ name = "Mediocre", seconds = 110, baseCarts = 5, teamCarts = 30, shoppers = 6, additionalShoppers = 7, speed = 10, questionSeconds = 2.5, payPercent = 125 }),
-	table.freeze({ name = "IRL", seconds = 95, baseCarts = 6, teamCarts = 40, shoppers = 8, additionalShoppers = 9, speed = 12, questionSeconds = 3, payPercent = 150 }),
+	table.freeze({ name = "Easy", seconds = 125, baseCarts = 5, teamCarts = 25, shoppers = 7, additionalShoppers = 6, speed = 8, stopSeconds = 4.6, rescueTaps = 1, rescuePeriod = .92, rescueWidth = .47, payPercent = 100 }),
+	table.freeze({ name = "Mediocre", seconds = 110, baseCarts = 6, teamCarts = 34, shoppers = 10, additionalShoppers = 8, speed = 10, stopSeconds = 5.1, rescueTaps = 2, rescuePeriod = .84, rescueWidth = .36, payPercent = 125 }),
+	table.freeze({ name = "IRL", seconds = 95, baseCarts = 7, teamCarts = 45, shoppers = 14, additionalShoppers = 10, speed = 12, stopSeconds = 5.7, rescueTaps = 3, rescuePeriod = .76, rescueWidth = .29, payPercent = 150 }),
 }
 
 local Config = {
-	Title = "Cart Catcher!",
 	MaxPlayers = 25,
 	MinPlayers = 1,
 	BriefingSeconds = 3,
 	WalkSpeed = 17,
-	PushSpeed = 13,
-	QuestionSpeed = 7,
-	QuestionCooldown = 7,
+	PushSpeed = 14,
+	QuestionCooldown = 9,
 	PickupDistance = 10,
+	RescueDistance = 12,
 	Levels = table.freeze(levels),
 }
 
@@ -23,13 +22,11 @@ function Config.shift(levelIndex: number, playerCount: number)
 	local scale = (crew - Config.MinPlayers) / (Config.MaxPlayers - Config.MinPlayers)
 	local goal = level.baseCarts + math.floor((level.teamCarts - level.baseCarts) * scale + 0.5)
 	return {
-		name = level.name,
 		seconds = level.seconds,
 		goal = goal,
-		carts = math.min(48, goal + math.max(6, math.ceil(goal * 0.2))),
+		carts = math.min(63, goal + math.max(10, math.ceil(goal * .36))),
 		shoppers = level.shoppers + math.floor(level.additionalShoppers * scale + 0.5),
 		speed = level.speed,
-		questionSeconds = level.questionSeconds,
 	}
 end
 

@@ -1,3 +1,4 @@
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -14,13 +15,21 @@ local Pay = require(shared:WaitForChild("Pay"))
 local request = shared:WaitForChild("LobbyRequest")
 local changed = shared:WaitForChild("LobbyChanged")
 local Interface = require(script.Parent.Interface)
+local ShopperScene = require(script.Parent.ShopperScene)
+local CartEffects = require(script.Parent.CartEffects)
+local Timing = require(shared:WaitForChild("RescueTiming"))
+local effectEvent = shared:WaitForChild("ShiftEffects")
+local rescueInput = shared:WaitForChild("RescueInput")
 local cameras = Workspace:WaitForChild("WWMS"):WaitForChild("MenuCameras")
 local shots = {}
-for _, name in { "Facade", "Willy", "Aisles", "Return" } do
+for _, name in { "Facade", "Willy", "Aisles", "Coolers", "Produce", "Return" } do
 	table.insert(shots, cameras:WaitForChild(name).CFrame)
 end
 
-local view = Interface.new(player:WaitForChild("PlayerGui"), Config, Pay)
+local gui = player:WaitForChild("PlayerGui")
+local view = Interface.new(gui, Config, Pay)
+local shopperScene = ShopperScene.new(gui, player, rescueInput, Timing, Config.RescueDistance)
+local cartEffects = CartEffects.new(view.hud, player)
 if not RunService:IsStudio() then TeleportService:SetTeleportGui(view:teleportGui()) end
 
 local route = "Loading"
@@ -76,14 +85,15 @@ end
 local function refresh(now)
 	local room = state.room
 	local carrying = player:GetAttribute("CarryingCart") == true
-	local question
-	if now < (player:GetAttribute("QuestionUntil") or 0) then
-		question = player:GetAttribute("Question")
-	end
+	local stopped = player:GetAttribute("Stopped") == true or shopperScene.stop ~= nil
 	local playing = route == "Active" and room ~= nil
 	if active ~= playing then
 		active = playing
-		if not active then filmStart = now end
+		if not active then
+			filmStart = now
+			shopperScene:reset(Workspace.CurrentCamera)
+			cartEffects:reset()
+		end
 		view.menu.Visible, view.backdrop.Enabled, view.hud.Visible = not active, not active, active
 		if active then
 			local selection = GuiService.SelectedObject
@@ -91,10 +101,10 @@ local function refresh(now)
 		end
 		setCamera()
 	end
-	ProximityPromptService.Enabled = playing and not carrying and not question
+	ProximityPromptService.Enabled = playing and not carrying and not stopped
 	if room and playing then
 		local seconds = math.max(0, math.ceil(room.deadline - now))
-		view:showShift(room, seconds, player:GetAttribute("ReturnedCarts") or 0, carrying, question, input)
+		view:showShift(room, seconds, player:GetAttribute("ReturnedCarts") or 0, carrying, input)
 	elseif room and view.countdown then
 		view.countdown.Text = tostring(math.max(1, math.ceil(room.deadline - now)))
 	end
@@ -194,7 +204,22 @@ function actions.send(action, arg, extra)
 end
 
 changed.OnClientEvent:Connect(accept)
-for _, attribute in { "CarryingCart", "QuestionUntil", "Question", "ReturnedCarts" } do
+effectEvent.OnClientEvent:Connect(function(kind, payload)
+	if not active then return end
+	if kind == "Grab" or kind == "Returned" then
+		cartEffects:receive(kind, payload)
+	else
+		shopperScene:receive(kind, payload)
+	end
+end)
+ContextActionService:BindActionAtPriority("WWMSHelp", function(_, actionState)
+	if active and actionState == Enum.UserInputState.Begin and shopperScene:input() then
+		return Enum.ContextActionResult.Sink
+	end
+	return Enum.ContextActionResult.Pass
+end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Q, Enum.KeyCode.ButtonY)
+
+for _, attribute in { "CarryingCart", "Stopped", "ReturnedCarts" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
 		refresh(Workspace:GetServerTimeNow())
 	end)
@@ -236,8 +261,12 @@ RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 
 		refresh(now)
 		if route == "Multi" and os.clock() >= nextBrowse then actions.browse(false) end
 	end
-	if active then return end
 	local camera = Workspace.CurrentCamera
+	if active then
+		view.tip.Visible = not shopperScene:step(now, input)
+		if camera and not shopperScene:camera(now, camera) and camera.CameraType == Enum.CameraType.Scriptable then setCamera() end
+		return
+	end
 	if not camera then return end
 
 	local elapsed = if GuiService.ReducedMotionEnabled then SHOT_SECONDS / 2 else now - filmStart

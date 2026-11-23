@@ -1,4 +1,6 @@
-local function build(roblox, layout)
+local addDetails = require("./StoreDetails")
+
+local function build(roblox, layout, makeR6)
 	local Instance, Vector3, CFrame = roblox.Instance, roblox.Vector3, roblox.CFrame
 	local Color3, UDim2, Enum = roblox.Color3, roblox.UDim2, roblox.Enum
 	local rgb, v = Color3.fromRGB, Vector3.new
@@ -164,6 +166,17 @@ local function build(roblox, layout)
 			for _, endZ in { -14.9, 14.9 } do
 				box(shelf, "End Cap", v(5.65, 6.65, .53), v(x, 3.34, z + endZ), royal)
 				box(shelf, "End Cap Accent", v(5.7, .52, .57), v(x, 5.72, z + endZ), tint)
+				local side = math.sign(endZ)
+				local head = box(shelf, "End Cap Label", v(4.6, 1.05, .25), v(x, 5.12, z + endZ + side * .29), navy)
+				local headline = ({ "Fresh today", "Stock up", "Snack time", "For your home", "Fix it fast", "Good deals" })[index]
+				text(head, if side > 0 then Enum.NormalId.Back else Enum.NormalId.Front, headline, nil, yellow)
+				for _, yy in { 1.28, 2.3, 3.32 } do
+					box(shelf, "End Cap Display Rail", v(4.62, .10, .26), v(x, yy - .39, z + endZ + side * .23), white)
+					for j = -1, 1 do
+						local graphic = packaging[(index + row + j + math.floor(yy * 2)) % #packaging + 1]
+						box(shelf, "End Cap Display Box", v(.96, .56, .24), v(x + j * 1.28, yy, z + endZ + side * .25), graphic)
+					end
+				end
 			end
 			for tier = 0, 3 do
 				box(shelf, "Shelf", v(5.62, .26, 29.8), v(x, .46 + tier * 1.88, z), white)
@@ -173,7 +186,17 @@ local function build(roblox, layout)
 					for side = -1, 1, 2 do
 						local color = packaging[(index + section + tier + row + side) % #packaging + 1]
 						local height = .68 + ((section + index + tier) % 3) * .19
-						box(shelf, "Stock", v(1.95, height, 2.8), v(x + side * 1.42, .59 + tier * 1.88 + height / 2, z + section * 4), color)
+						local xx, yy, zz = x + side * 1.42, .59 + tier * 1.88 + height / 2, z + section * 4
+						local stock = box(shelf, "Stock", v(1.95, height, 2.8), v(xx, yy, zz), color)
+						if index == 1 or index == 3 then
+							stock.Size = v(1.72, height, 2.25)
+							stock.Shape = if index == 1 then Enum.PartType.Ball else Enum.PartType.Block
+						end
+						local graphic = if (section + tier) % 2 == 0 then white else tint
+						box(shelf, "Pack Label", v(.064, height * .35, 1.4), v(xx + side * stock.Size.X * .5, yy, zz), graphic)
+						if section % 2 == 0 then
+							box(shelf, "Shelf Price Tag", v(.068, .13, .75), v(x + side * 2.82, .54 + tier * 1.88, zz), yellow)
+						end
 					end
 				end
 			end
@@ -208,42 +231,42 @@ local function build(roblox, layout)
 	box(bay, "Cart Hole Beacon", v(25, .3, .86), v(bx, 9.81, 63.4), mint, false, Enum.Material.Neon)
 	mark(markers, "CartHole", CFrame.new(bx, 3, bz), v(25, 6, 13))
 
-	local mascot = folder(store, "Willy Walter", "Model")
-	local base = CFrame.new(25, 0, 54) * CFrame.Angles(0, math.rad(158), 0)
-	local skin = rgb(224, 169, 127)
-	local hair = rgb(222, 228, 230)
-	local pants = rgb(50, 71, 108)
-	local function feature(name, size, x, y, z, color, angle)
-		return part(mascot, name, size, base * CFrame.new(x, y, z) * CFrame.Angles(0, 0, math.rad(angle or 0)), color)
+	local mascotStage = folder(store, "Willy Walter Stage")
+	box(mascotStage, "Plinth", v(14, .65, 9), v(25, .325, 54), royal, true)
+	local mascot = makeR6(roblox, "Willy Walter", blue)
+	local base = CFrame.lookAt(v(25, 3.65, 54), v(34, 3.65, 36))
+	local root = mascot.PrimaryPart
+	local offset = base * root.CFrame:Inverse()
+	for _, limb in mascot:GetChildren() do
+		if limb:IsA("BasePart") then
+			limb.CFrame = offset * limb.CFrame
+			limb.CanCollide, limb.CanTouch, limb.CanQuery = false, false, false
+		end
 	end
-	box(mascot, "Plinth", v(14, .65, 9), v(25, .325, 54), royal, true)
-	local mascotSign = feature("Mascot Plaque", v(8, 1.3, .25), 0, 1.22, 4.1, navy)
-	mascotSign.CanCollide = true
-	mascotSign.CanQuery = true
-	text(mascotSign, Enum.NormalId.Back, "WILLY WALTER", nil, white)
-	for _, sign in { -1, 1 } do
-		feature("Boot", v(1.28, .54, 1.9), sign * .77, .94, .18, navy)
-		feature("Trouser", v(1.27, 2, 1.41), sign * .77, 2.02, 0, pants)
+	root.Anchored = true
+	mascot.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	mascot.Parent = mascotStage
+	local shoulder = mascot.Torso["Right Shoulder"]
+	shoulder.C0 = shoulder.C0 * CFrame.Angles(.1, 0, 2.0)
+	local plaque = part(mascotStage, "Mascot Plaque", v(8, 1.35, .32), base * CFrame.new(0, -1.9, -4.1), navy)
+	text(plaque, Enum.NormalId.Front, "WILLY WALTER", nil, yellow)
+	local function wear(name, size, parent, at, color)
+		local trim = part(mascotStage, name, size, parent.CFrame * CFrame.new(at), color, false)
+		trim.Anchored = false
+		trim.Massless = true
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1, weld.Parent = parent, trim, trim
 	end
-	feature("Polo", v(3.16, 2.75, 1.66), 0, 4.1, 0, blue)
-	feature("Name Badge", v(.81, .39, .1), -.79, 4.71, .87, yellow)
-	feature("Resting Sleeve", v(.87, 1.27, 1.28), -1.94, 4.66, 0, blue, -11)
-	feature("Resting Hand", v(.79, 1.37, 1.18), -2.16, 3.62, .04, skin, -11)
-	feature("Waving Sleeve", v(.98, 1.47, 1.27), 2.02, 4.86, 0, blue, -53)
-	feature("Waving Hand", v(.92, 1.6, 1.04), 2.84, 5.76, .08, skin, 14)
-	feature("Head", v(2.66, 2.25, 1.93), 0, 6.44, 0, skin)
-	feature("Back Hair", v(2.74, 2.03, .47), 0, 6.65, -.81, hair)
-	for _, sign in { -1, 1 } do
-		feature("Hair at Temple", v(.42, 1.42, 1.77), sign * 1.19, 6.9, 0, hair)
-		feature("Glasses", v(.64, .48, .12), sign * .47, 6.67, .99, navy)
-		feature("Lenses", v(.47, .29, .06), sign * .47, 6.67, 1.066, rgb(188, 222, 225))
-		feature("Eyes", v(.12, .19, .055), sign * .47, 6.67, 1.11, ink)
-		feature("Smile Corners", v(.13, .17, .05), sign * .24, 6.02, 1.005, pants, sign * -20)
+	local silver = rgb(224, 231, 237)
+	wear("Silver Hair", v(1.38, .32, 1.13), mascot.Head, v(0, .62, .05), silver)
+	wear("Silver Hair", v(1.35, .76, .25), mascot.Head, v(0, .25, .56), silver)
+	wear("Glasses Bridge", v(.88, .085, .10), mascot.Head, v(0, .12, -.66), navy)
+	for _, x in { -.29, .29 } do
+		wear("Round Glasses", v(.43, .27, .10), mascot.Head, v(x, .12, -.68), navy)
+		wear("Glasses Lens", v(.31, .17, .07), mascot.Head, v(x, .12, -.742), sky)
 	end
-	feature("Glasses Bridge", v(.38, .11, .1), 0, 6.67, 1.01, navy)
-	feature("Smile", v(.4, .09, .05), 0, 5.97, 1.005, pants)
-	feature("Moustache", v(.83, .2, .09), 0, 6.21, 1.03, hair)
-	feature("Comb-over", v(1.88, .56, 1.93), -.24, 7.59, 0, hair, 8)
+	wear("Moustache", v(.57, .16, .10), mascot.Head, v(0, -.17, -.64), silver)
+	wear("WWMS Badge", v(.45, .25, .06), mascot.Torso, v(-.48, .37, -.52), yellow)
 
 	local spawn = folder(lot, "Crew Spawn", "SpawnLocation")
 	spawn.Size, spawn.CFrame = v(12, .5, 10), CFrame.new(0, .20, 107)
@@ -257,15 +280,22 @@ local function build(roblox, layout)
 	end
 
 	local shots = {
-		{ "Facade", v(52, 22, 121), v(0, 12, 67) },
+		{ "Facade", v(64, 25, 135), v(4, 12, 69) },
 		{ "Willy", v(36, 8, 35), v(24.8, 4.9, 54) },
 		{ "Aisles", v(52, 15, -61), v(3, 6, 1) },
+		{ "Coolers", v(34, 10.3, -52), v(-15, 6, -68) },
+		{ "Produce", v(-54, 10.5, 36), v(-77, 3.8, 17) },
 		{ "Return", v(-15, 11, 37), v(-34, 5.4, 58) },
 	}
 	for _, shot in shots do
 		mark(cameras, shot[1], CFrame.lookAt(shot[2], shot[3]))
 	end
 
+	addDetails({
+		v = v, rgb = rgb, box = box, part = part, folder = folder, text = text, cf = CFrame, enum = Enum,
+		blue = blue, royal = royal, navy = navy, yellow = yellow, steel = steel, white = white,
+		store = store, layout = layout, building = building, lot = lot, bay = bay, checkout = checkout,
+	})
 	return store
 end
 

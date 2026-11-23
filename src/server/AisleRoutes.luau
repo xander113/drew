@@ -26,6 +26,10 @@ function AisleRoutes.new(layout)
 			table.insert(self.shelves, { minX = x - 4.5, maxX = x + 4.5, minZ = z - 16.7, maxZ = z + 16.7 })
 		end
 	end
+	for _, rect in layout.Fixtures do
+		local halfX, halfZ = rect.width / 2 + 1.7, rect.depth / 2 + 1.7
+		table.insert(self.shelves, { minX = rect.x - halfX, maxX = rect.x + halfX, minZ = rect.z - halfZ, maxZ = rect.z + halfZ })
+	end
 	for _, x in layout.LaneX do
 		for _, z in layout.CrossZ do
 			table.insert(self.nodes, Vector3.new(x, 0, z))
