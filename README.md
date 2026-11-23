@@ -22,7 +22,7 @@ Finish the shift and return at least one cart to earn pay. Before the level mult
 
 ## Shift menu and shop
 
-Open **Menu** while playing, press **P** on a keyboard, or click the left stick on a gamepad. Roblox controls its own Escape menu. Closing it after pressing Escape opens the WWMS menu. The timer keeps running while the WWMS menu or shop is open. On a gamepad, move with the stick or D-pad, use **A** to choose, and use **B** to go back. On touch screens, tap the buttons and scroll on short screens. Leaving a shift early, including disconnecting, costs the level’s leave fee.
+Open **Menu** while playing, press **P** on a keyboard, or click the left stick on a gamepad. Escape opens the Roblox menu. The timer keeps running while the WWMS menu or shop is open. On a gamepad, move with the stick or D-pad, use **A** to choose, and use **B** to go back. On touch screens, tap the buttons and scroll on short screens. Leaving a shift early, including disconnecting, costs the level’s leave fee.
 
 The shop is on the home and shift menus. It checks Roblox for the current experience’s developer products. To list passes automatically, add the Creator Hub secret `WWMS_SHOP_KEY` for `apis.roblox.com` with read access to game passes in this experience. Check that **Allow HTTP Requests** is enabled. `src/server/ShopItems.luau` also accepts known pass IDs and preview colors for individual IDs. [Roblox passes API](https://create.roblox.com/docs/cloud/reference/features/game-passes) · [Roblox secrets](https://create.roblox.com/docs/cloud-services/secrets)
 
@@ -30,7 +30,7 @@ The shop shows preview items when it has no live items. Browse by category, sear
 
 ## Sound
 
-Calm music plays in menus and between shifts. A livelier mix plays while you work toward the cart goal. Both playlists repeat and fade between songs. Music is courtesy of APM Music and licensed for use in Roblox. The tracks are listed in `src/client/Music.luau`. [Roblox music license](https://en.help.roblox.com/hc/en-us/articles/360000927163-Using-Licensed-Music-on-Roblox)
+Calm music plays between shifts. A livelier mix plays during a shift and keeps playing through the pause menu and shop. Each mix picks up where it left off. Choose **Music** on the main menu to set the volume or mute the music. The game saves your choice across servers. Music is courtesy of APM Music and licensed for use in Roblox. The tracks are listed in `src/client/Music.luau`. [Roblox music license](https://en.help.roblox.com/hc/en-us/articles/360000927163-Using-Licensed-Music-on-Roblox)
 
 A short cue plays when you slip. The timer pulses in the last 12 seconds while the cart bay still needs carts. `src/client/SoundEffects.luau` holds the sound clips and volume. The game shares seven local sound slots and uses built-in clips when a store clip fails to load.
 

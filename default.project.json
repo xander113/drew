@@ -5,17 +5,24 @@
     "Lighting": {
       "$className": "Lighting",
       "$properties": {
-        "Ambient": [0.47, 0.55, 0.68],
-        "OutdoorAmbient": [0.61, 0.69, 0.79],
-        "Brightness": 2.08,
-        "ClockTime": 15.6,
-        "EnvironmentDiffuseScale": 0.7,
-        "EnvironmentSpecularScale": 0.35,
-        "GlobalShadows": true
+        "Ambient": [0.55, 0.63, 0.74],
+        "OutdoorAmbient": [0.62, 0.70, 0.80],
+        "Brightness": 2.18,
+        "ClockTime": 15.2,
+        "EnvironmentDiffuseScale": 0.48,
+        "EnvironmentSpecularScale": 0.26,
+        "GlobalShadows": true,
+        "ShadowSoftness": 0.42,
+        "LightingStyle": "Realistic",
+        "PrioritizeLightingQuality": true
       },
       "WWMS Palette": {
         "$className": "ColorCorrectionEffect",
-        "$properties": { "Brightness": -0.025, "Contrast": 0.06, "Saturation": 0.13 }
+        "$properties": { "Brightness": -0.012, "Contrast": 0.067, "Saturation": 0.17 }
+      },
+      "WWMS Glow": {
+        "$className": "BloomEffect",
+        "$properties": { "Intensity": 0.21, "Size": 21, "Threshold": 1.95 }
       }
     },
     "Workspace": {
@@ -23,6 +30,7 @@
       "$properties": { "StreamingEnabled": false },
       "WWMS": { "$path": "world/WWMS.rbxm" }
     },
+    "MaterialService": { "$className": "MaterialService", "$properties": { "Use2022Materials": true } },
     "HttpService": { "$className": "HttpService", "$properties": { "HttpEnabled": true } },
     "ReplicatedStorage": { "CartCatcher": { "$path": "src/shared" } },
     "ServerScriptService": { "CartCatcher": { "$path": "src/server" } },

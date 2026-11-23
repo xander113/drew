@@ -19,14 +19,15 @@ local playlists = {
 	},
 }
 
-local LEVEL = { Calm = .24, Shift = .26 }
-local FADE = 1.15
+local LEVEL = { Calm = .20, Shift = .22 }
+local MAX_VOLUME = .58
+local FADE = 1.65
 local LOAD_TIMEOUT = 6
 local PRELOAD_AHEAD = 9
 
-function Music.new()
+function Music.new(volume)
 	local group = Instance.new("SoundGroup")
-	group.Name, group.Volume, group.Parent = "WWMS Music", .6, SoundService
+	group.Name, group.Parent = "WWMS Music", SoundService
 	local decks = {}
 	for index = 1, 2 do
 		local sound = Instance.new("Sound")
@@ -34,7 +35,15 @@ function Music.new()
 		sound.Parent = SoundService
 		decks[index] = { sound = sound }
 	end
-	return setmetatable({ decks = decks, cursor = { Calm = 0, Shift = 0 }, retryAt = 0, failures = 0 }, Music)
+	local self = setmetatable({
+		group = group, decks = decks, cursor = { Calm = 0, Shift = 0 }, resume = {}, retryAt = 0, failures = 0,
+	}, Music)
+	self:setVolume(volume)
+	return self
+end
+
+function Music:setVolume(volume)
+	self.group.Volume = math.clamp(volume, 0, 100) * MAX_VOLUME / 100
 end
 
 local function fade(deck, time, volume)
@@ -51,13 +60,14 @@ end
 
 function Music:prepare(now)
 	local playlist = playlists[self.mode]
-	local index = self.cursor[self.mode] % #playlist + 1
-	self.cursor[self.mode] = index
+	local paused = self.resume[self.mode]
+	local index = if paused then paused.index else self.cursor[self.mode] % #playlist + 1
 	local track = playlist[index]
 	local deck = if self.current == self.decks[1] then self.decks[2] else self.decks[1]
 	stop(deck)
 	deck.sound.SoundId = "rbxassetid://" .. track.id
-	deck.mode, deck.start, deck.waitUntil = self.mode, track.start or 0, now + LOAD_TIMEOUT
+	deck.mode, deck.index = self.mode, index
+	deck.start, deck.waitUntil = if paused then paused.position else track.start or 0, now + LOAD_TIMEOUT
 	self.incoming = deck
 	if not deck.loading then
 		deck.loading = true
@@ -73,10 +83,22 @@ function Music:step(active, now)
 	if mode ~= self.mode then
 		self.mode, self.retryAt, self.failures = mode, now, 0
 		if self.incoming then stop(self.incoming); self.incoming = nil end
-		-- Fade the round music promptly even when the next menu track is slow to load.
-		if self.current and self.current.mode == "Shift" then
-			fade(self.current, .45, 0)
-			self.current.stopAt = now + .45
+		local deck = self.current
+		if deck and deck.sound.IsPlaying and deck.mode ~= mode then
+			if deck.sound.TimeLength - deck.sound.TimePosition > FADE then
+				self.resume[deck.mode] = { index = deck.index, position = deck.sound.TimePosition }
+			end
+			-- Let calm music cover a slow load. Shift music ends promptly with the shift.
+			if deck.mode == "Shift" then
+				fade(deck, .65, 0)
+				deck.stopAt = now + .65
+			end
+		elseif deck and deck.mode == mode then
+			self.resume[mode] = nil
+			if deck.stopAt then
+				deck.stopAt = nil
+				fade(deck, .65, LEVEL[mode])
+			end
 		end
 	end
 
@@ -99,10 +121,12 @@ function Music:step(active, now)
 				fade(current, FADE, 0)
 				current.stopAt = now + FADE
 			end
+			self.cursor[mode], self.resume[mode] = incoming.index, nil
 			self.current, self.incoming, self.failures = incoming, nil, 0
 			return
 		elseif not ready and now >= incoming.waitUntil then
 			stop(incoming)
+			self.cursor[mode], self.resume[mode] = incoming.index, nil
 			self.incoming = nil
 			self.failures += 1
 			self.retryAt = now + (if self.failures % #playlists[mode] == 0 then 12 else .25)

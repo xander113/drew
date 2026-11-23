@@ -2,6 +2,7 @@ local ScreenLayout = require(script.Parent.ScreenLayout)
 local SoundEffects = require(script.Parent.SoundEffects)
 local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Interface = {}
 Interface.__index = Interface
@@ -60,7 +61,7 @@ end
 local function screen(parent, name, order, full)
 	local gui = item("ScreenGui", name, parent)
 	gui.DisplayOrder, gui.ResetOnSpawn = order, false
-	gui.ScreenInsets = if full then Enum.ScreenInsets.None else Enum.ScreenInsets.CoreUISafeInsets
+	ScreenLayout.applyInsets(gui, full)
 	return gui
 end
 
@@ -176,6 +177,7 @@ function Interface.new(parent, config, pay)
 	self.hud = hud
 	local top = box(hud, "Shift score", 0, 0, 376, 100, PAPER, 18)
 	top.AnchorPoint, top.Position = Vector2.new(.5, 0), UDim2.new(.5, 0, 0, 8)
+	self.hudScore = top
 	outline(top, INK, 2)
 	self.hudScale = item("UIScale", "Scale", top)
 	self.hudLevel = label(top, "Level", "", 15, 8, 230, 18, 13, BLUE, BOLD)
@@ -191,6 +193,19 @@ function Interface.new(parent, config, pay)
 	self.tip, self.tipScale = tip, item("UIScale", "Scale", tip)
 	self.tipTitle = label(tip, "Action", "", 15, 8, 346, 24, 20, GOLD, DISPLAY, CENTER)
 	self.tipText = label(tip, "Help", "", 13, 33, 351, 25, 14, WHITE, BODY, CENTER)
+	UserInputService.InputChanged:Connect(function(input)
+		local drag = self.musicDrag
+		if drag and (input == drag.input or drag.mouse and input.UserInputType == Enum.UserInputType.MouseMovement) then
+			drag.move(input.Position.X, false)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		local drag = self.musicDrag
+		if drag and (input == drag.input or drag.mouse and input.UserInputType == Enum.UserInputType.MouseButton1) then
+			self.musicDrag = nil
+			drag.finish()
+		end
+	end)
 	return self
 end
 
@@ -205,16 +220,19 @@ function Interface:resize()
 	local portrait = size.X < size.Y
 	local multiplier = ScreenLayout.scale(size, 468, 564, 27, if self.tv then 1.27 else 1.12, .78)
 	local x = math.floor((size.X - 468 * multiplier) / 2)
-	local top = math.max(math.ceil(58 * multiplier), math.floor((size.Y - 488 * multiplier) * .52))
+	local headerHeight = math.ceil(54 * multiplier)
+	local headerY = math.max(8, math.floor((size.Y - 488 * multiplier - headerHeight) / 2))
+	local top = headerY + headerHeight
 	self.ticketScale.Scale = multiplier
 	self.ticket.Position = offset(x, top)
 	self.headerScale.Scale = multiplier
-	self.header.Position = offset(x, 8)
+	self.header.Position = offset(x, headerY)
 	local height = math.max(size.Y, top + 488 * multiplier + 20)
 	self.menuScroll.CanvasSize = offset(0, height)
 	self.menuScroll.ScrollingEnabled = height > size.Y + 1
 
 	self.hudScale.Scale = ScreenLayout.scale(size, 376, 385, 24, if self.tv then 1.20 else 1.04, .82)
+	self.hudScore.Position = UDim2.new(.5, 0, 0, if size.X < 620 then 51 else 8)
 	self.tipScale.Scale = self.hudScale.Scale
 	self.tip.Position = UDim2.new(.5, 0, 1, if self.touch and portrait then -105 else -18)
 end
@@ -235,6 +253,48 @@ end
 
 local function back(view, parent, callback, text)
 	return action(view, parent, text or "Back", 23, 14, 86, 40, LIGHT_BLUE, callback, { radius = 10, size = 17 })
+end
+
+local function musicControl(view, page, model, actions)
+	local meter = box(page, "Music control", 23, 165, 421, 130, LIGHT_BLUE, 18)
+	local value = label(meter, "Volume", "", 0, 8, 421, 44, 30, INK, DISPLAY, CENTER)
+	local slider = item("TextButton", "Music slider", meter)
+	slider.Position, slider.Size = offset(25, 62), offset(371, 56)
+	slider.Text, slider.BackgroundTransparency, slider.Selectable = "", 1, false
+	local rail = box(slider, "Track", 17, 22, 337, 12, WHITE, 6)
+	local played = box(rail, "Volume level", 0, 0, 0, 12, BLUE, 6)
+	local knob = box(rail, "Knob", 0, 6, 34, 34, GOLD, 17)
+	knob.AnchorPoint = Vector2.new(.5, .5)
+	outline(knob, INK, 2)
+	local function paint(percent)
+		value.Text = if percent == 0 then "Off" else string.format("%d%%", percent)
+		played.Size = UDim2.new(percent / 100, 0, 1, 0)
+		knob.Position = UDim2.new(percent / 100, 0, .5, 0)
+	end
+	local function adjust(percent, save)
+		percent = math.clamp(percent, 0, 100)
+		actions.music(percent, save)
+		paint(percent)
+	end
+	slider.InputBegan:Connect(function(input)
+		local mouse = input.UserInputType == Enum.UserInputType.MouseButton1
+		if view.musicDrag or (not mouse and input.UserInputType ~= Enum.UserInputType.Touch) then return end
+		local function move(x)
+			if rail.AbsoluteSize.X > 0 then
+				adjust(math.round((x - rail.AbsolutePosition.X) * 100 / rail.AbsoluteSize.X), false)
+			end
+		end
+		view.musicDrag = { input = input, mouse = mouse, move = move, finish = function() actions.music(model.musicVolume, true) end }
+		move(input.Position.X)
+	end)
+	local lower = action(view, page, "−", 23, 324, 128, 54, WHITE, function() adjust(model.musicVolume - 10, true) end, { first = true, size = 30 })
+	local raise = action(view, page, "+", 162, 324, 128, 54, WHITE, function() adjust(model.musicVolume + 10, true) end, { size = 30 })
+	local mute = action(view, page, "Mute", 301, 324, 143, 54, GOLD, function() adjust(0, true) end)
+	lower.NextSelectionRight = raise
+	raise.NextSelectionLeft, raise.NextSelectionRight = lower, mute
+	mute.NextSelectionLeft = raise
+	view.paintMusic = paint
+	paint(model.musicVolume)
 end
 
 local function levelChoices(view, parent, draft, crew, startY, selectLevel)
@@ -303,7 +363,9 @@ function Interface:showPage(route, model, actions)
 	if route == lastRoute and selection and selection:IsDescendantOf(self.pageLayer) then
 		selectedKey = selection:GetAttribute("MenuControl")
 	end
+	if self.musicDrag then self.musicDrag.finish() end
 	self.route, self.first, self.list, self.countdown, self.controls = route, nil, nil, nil, {}
+	self.musicDrag, self.paintMusic = nil, nil
 	if self.slide then self.slide:Cancel() end
 	self.pageLayer:ClearAllChildren()
 	local page = item("Frame", route, self.pageLayer)
@@ -325,7 +387,12 @@ function Interface:showPage(route, model, actions)
 		label(page, "How to play", "Bring carts back before time runs out.", 27, 205, 414, 27, 17)
 		action(self, page, "Solo mode", 23, 261, 421, 66, BLUE, function() actions.go("Solo") end, { detail = "Play on your own" })
 		action(self, page, "Multi", 23, 344, 421, 65, MINT, function() actions.go("Multi") end, { detail = "Play with others" })
-		action(self, page, "Shop", 23, 430, 421, 39, GOLD, actions.shop, { size = 20, radius = 12 })
+		action(self, page, "Shop", 23, 430, 204, 39, GOLD, actions.shop, { size = 20, radius = 12 })
+		action(self, page, "Music", 238, 430, 206, 39, LIGHT_BLUE, function() actions.go("Music") end, { size = 20, radius = 12 })
+	elseif route == "Music" then
+		back(self, page, function() actions.go("Home") end)
+		title(page, "Music")
+		musicControl(self, page, model, actions)
 	elseif route == "Solo" then
 		back(self, page, function() actions.go("Home") end)
 		title(page, "Solo mode", "Pick a level.")

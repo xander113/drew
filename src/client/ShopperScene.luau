@@ -50,7 +50,7 @@ end
 function ShopperScene.new(parent, player, remote, timing, helpRange)
 	local gui = object("ScreenGui", parent)
 	gui.Name, gui.DisplayOrder, gui.ResetOnSpawn = "WWMS Scene", 24, false
-	gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+	ScreenLayout.applyInsets(gui)
 	local self = setmetatable({
 		player = player, remote = remote, timing = timing, helpRange = helpRange, marks = {}, gui = gui,
 	}, ShopperScene)
@@ -117,7 +117,7 @@ function ShopperScene:resize()
 	local bottom = if self.touch and portrait then -105 else -25
 	self.speech.Position = UDim2.new(.5, 0, 1, bottom)
 	self.help.Position = self.speech.Position
-	self.portrait.Position = UDim2.new(1, if portrait then -15 else -35, 0, if portrait then 112 else 29)
+	self.portrait.Position = UDim2.new(1, if portrait then -15 else -35, 0, if dims.X < 620 then 155 else 56)
 end
 
 function ShopperScene:portraitOf(shopper)

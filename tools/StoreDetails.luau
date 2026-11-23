@@ -13,14 +13,14 @@ return function(kit)
 
 	local floor = folder(kit.store, "Floor and Signs")
 	for x = -84, 84, 6 do
-		box(floor, "Tile Joint", v(.035, .016, 142), v(x, .01, 0), rgb(196, 208, 220))
+		box(floor, "Tile Joint", v(.065, .016, 142), v(x, .015, 0), rgb(174, 196, 218))
 	end
 	for z = -66, 66, 6 do
-		box(floor, "Tile Joint", v(171, .017, .035), v(0, .011, z), rgb(196, 208, 220))
+		box(floor, "Tile Joint", v(171, .016, .065), v(0, .017, z), rgb(174, 196, 218))
 	end
 	for _, z in { -61, -13, 39 } do
 		for x = -80, 80, 4 do
-			box(floor, "Floor Lane Mark", v(2, .023, .2), v(x, .016, z), rgb(158, 193, 228))
+			box(floor, "Floor Lane Mark", v(2, .023, .2), v(x, .03, z), rgb(225, 237, 249))
 		end
 	end
 	for _, x in { -68, 69 } do
@@ -117,7 +117,10 @@ return function(kit)
 	for _, x in { -85, -44, 44, 85 } do
 		box(kit.lot, "Parking Lamp Stand", v(.68, 14.3, .68), v(x, 7.1, 117), navy, true)
 		box(kit.lot, "Parking Lamp Arm", v(4.7, .45, .65), v(x, 14.1, 117), navy)
-		box(kit.lot, "Lamp", v(4.24, .14, .54), v(x, 13.83, 117), white, false, neon)
+		local fixture = box(kit.lot, "Lamp", v(4.24, .14, .54), v(x, 13.83, 117), white, false, neon)
+		local lamp = folder(fixture, "Parking Light", "SpotLight")
+		lamp.Face, lamp.Brightness, lamp.Range, lamp.Angle = enum.NormalId.Bottom, 1.3, 27, 111
+		lamp.Color = rgb(255, 232, 189)
 	end
 	for _, x in { -94, -36, 36, 94 } do
 		box(kit.lot, "Planter Pot", v(4.2, 2.1, 4.2), v(x, 1, 82), blue, true)

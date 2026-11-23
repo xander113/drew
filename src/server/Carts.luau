@@ -22,7 +22,7 @@ local function build(parent, frame)
 		part.Size = size
 		part.CFrame = frame * CFrame.new(offset)
 		part.Color = color
-		part.Material = if color == METAL or color == HUB then Enum.Material.Metal else Enum.Material.SmoothPlastic
+		part.Material = if color == METAL or color == HUB then Enum.Material.Metal elseif color == TIRE then Enum.Material.Rubber else Enum.Material.SmoothPlastic
 		part.Shape = shape or Enum.PartType.Block
 		part.TopSurface, part.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
 		part.Anchored = true

@@ -1,4 +1,5 @@
 local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local Pay = require(game:GetService("ReplicatedStorage"):WaitForChild("CartCatcher").Pay)
 
@@ -20,6 +21,8 @@ local function read(value)
 	return {
 		cents = Pay.roundCents(count(data.cents)), receipts = dictionary(data.receipts), purchases = dictionary(data.purchases),
 		items = dictionary(data.items), rounds = count(data.rounds), wins = count(data.wins), carts = count(data.carts),
+		musicVolume = if type(data.musicVolume) == "number" and data.musicVolume >= 0 and data.musicVolume <= 100
+			then math.round(data.musicVolume) else nil,
 	}
 end
 
@@ -33,6 +36,7 @@ local function apply(data, entry)
 	if data.receipts[entry.id] then return end
 	data.receipts[entry.id] = entry.issued
 	data.cents = math.max(0, data.cents + (entry.cents or 0))
+	if entry.musicVolume ~= nil then data.musicVolume = entry.musicVolume end
 	if entry.item then data.items[entry.item] = 1 end
 	if entry.round then
 		data.rounds += 1
@@ -44,14 +48,17 @@ end
 local function show(profile)
 	if not profile.player then return end
 	local amount, completed = profile.saved.cents, profile.saved.rounds > 0
+	local volume = profile.saved.musicVolume
 	for _, entry in profile.pending do
 		if not profile.saved.receipts[entry.id] then
 			amount = math.max(0, amount + (entry.cents or 0))
 			if entry.round then completed = true end
+			if entry.musicVolume ~= nil then volume = entry.musicVolume end
 		end
 	end
 	profile.player:SetAttribute("WalbucksCents", amount)
 	profile.player:SetAttribute("HasFinishedShift", completed)
+	profile.player:SetAttribute("MusicVolume", volume)
 	profile.player:SetAttribute("WalletReady", profile.loaded)
 	profile.player:SetAttribute("WalletSaving", #profile.pending > 0)
 end
@@ -117,6 +124,12 @@ end
 
 function Wallet:penalty(player, id, cents)
 	self:queue(player.UserId, { id = "leave:" .. id, cents = -cents })
+end
+
+function Wallet:setMusicVolume(player, volume)
+	if player:GetAttribute("MusicVolume") ~= volume then
+		self:queue(player.UserId, { id = "music:" .. HttpService:GenerateGUID(false), musicVolume = volume })
+	end
 end
 
 function Wallet:grantPass(player, item)

@@ -12,6 +12,7 @@ local Config = {
 	PushSpeed = 14,
 	PickupDistance = 10,
 	RescueDistance = 12,
+	DefaultMusicVolume = 42,
 	Levels = table.freeze(levels),
 }
 

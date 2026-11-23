@@ -40,12 +40,13 @@ local shopActions = {}
 local shopMenu = ShopMenu.new(gui, player, shopActions)
 ShopperMotion.start()
 SoundEffects.prepare()
-local music = Music.new()
+local musicVolume = player:GetAttribute("MusicVolume") or Config.DefaultMusicVolume
+local music = Music.new(musicVolume)
 if not RunService:IsStudio() then TeleportService:SetTeleportGui(view:teleportGui()) end
 
 local route = "Loading"
 local state = { revision = 0 }
-local model = { solo = 1, multi = 1, roomLevel = 1, private = false, code = "" }
+local model = { solo = 1, multi = 1, roomLevel = 1, private = false, code = "", musicVolume = musicVolume }
 local actions = {}
 local listBusy, busy = false, false
 local message = ""
@@ -69,7 +70,6 @@ local function updateLayout()
 	shopMenu:setInput(input, tv)
 end
 local controls
-local menuOpenedWithEscape = false
 local shopReturn, shopLoading, shopQueued
 local function modal(mode)
 	shopMenu:show(mode)
@@ -89,7 +89,7 @@ task.spawn(function()
 		if shopMenu.mode and active then controls:Disable() end
 	end
 end)
-local menuPages = { Home = true, Solo = true, Multi = true, Code = true, Create = true }
+local menuPages = { Home = true, Solo = true, Multi = true, Code = true, Create = true, Music = true }
 
 local function setCamera()
 	local camera = Workspace.CurrentCamera
@@ -219,6 +219,33 @@ function actions.soloLevel(level) model.solo = level end
 function actions.multiLevel(level) model.multi = level end
 function actions.pickRoomLevel(level) model.roomLevel = level end
 function actions.code(code) model.code = code end
+
+local musicEdited, musicSave = false, 0
+function actions.music(volume, save)
+	musicEdited = true
+	model.musicVolume = volume
+	music:setVolume(volume)
+	if not save then return end
+	musicSave += 1
+	local version = musicSave
+	local function saveVolume()
+		if version ~= musicSave then return true end
+		local ok, response = pcall(request.InvokeServer, request, "MusicVolume", volume)
+		return ok and response and not response.error
+	end
+	task.delay(.5, function()
+		if not saveVolume() then task.delay(.75, saveVolume) end
+	end)
+end
+
+player:GetAttributeChangedSignal("MusicVolume"):Connect(function()
+	if musicEdited then return end
+	local volume = player:GetAttribute("MusicVolume") or Config.DefaultMusicVolume
+	model.musicVolume = volume
+	music:setVolume(volume)
+	if view.paintMusic then view.paintMusic(volume) end
+end)
+
 function actions.privacy(private)
 	model.private = private
 	render()
@@ -371,19 +398,17 @@ ContextActionService:BindActionAtPriority("WWMSMenu", function(_, actionState)
 	return Enum.ContextActionResult.Pass
 end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.P, Enum.KeyCode.ButtonL3)
 ContextActionService:BindActionAtPriority("WWMSBack", function(_, actionState)
-	if shopMenu.mode and actionState == Enum.UserInputState.Begin and not GuiService:IsModalDialog() then
-		shopActions.back()
-		return Enum.ContextActionResult.Sink
+	if actionState == Enum.UserInputState.Begin and not GuiService.MenuIsOpen and not GuiService:IsModalDialog() then
+		if shopMenu.mode then
+			shopActions.back()
+			return Enum.ContextActionResult.Sink
+		elseif route == "Music" then
+			actions.go("Home")
+			return Enum.ContextActionResult.Sink
+		end
 	end
 	return Enum.ContextActionResult.Pass
 end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.ButtonB)
-UserInputService.InputBegan:Connect(function(event)
-	if active and event.KeyCode == Enum.KeyCode.Escape then menuOpenedWithEscape = true end
-end)
-GuiService.MenuClosed:Connect(function()
-	if menuOpenedWithEscape and active and not shopMenu.mode then modal("Pause") end
-	menuOpenedWithEscape = false
-end)
 
 changed.OnClientEvent:Connect(accept)
 effectEvent.OnClientEvent:Connect(function(kind, payload)
@@ -484,8 +509,7 @@ RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 
 	if now >= lastRefresh then
 		lastRefresh = now + .10
 		refresh(now)
-		local room = state.room
-		music:step(active == true and not shopMenu.mode and room ~= nil and room.banked < room.goal, now)
+		music:step(active == true, now)
 		if route == "Multi" and os.clock() >= nextBrowse then actions.browse(false) end
 	end
 	local camera = Workspace.CurrentCamera

@@ -370,6 +370,13 @@ request.OnServerInvoke = function(player, action, arg, extra)
 		entry.syncAt = now + .6
 		return { state = snapshot(entry) }
 	end
+	if action == "MusicVolume" then
+		if type(arg) ~= "number" or arg % 1 ~= 0 or arg < 0 or arg > 100 then return { error = "Invalid volume." } end
+		if now < (entry.musicAt or 0) then return { error = "Please wait." } end
+		entry.musicAt = now + .4
+		wallet:setMusicVolume(player, arg)
+		return {}
+	end
 	if action == "Browse" then
 		if now < entry.listAt or entry.room or reserved then return { error = "Please wait." } end
 		entry.listAt = now + 1.5

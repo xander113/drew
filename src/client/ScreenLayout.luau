@@ -1,5 +1,11 @@
 local ScreenLayout = {}
 
+function ScreenLayout.applyInsets(gui, fullBleed)
+	gui.IgnoreGuiInset = true
+	gui.ScreenInsets = if fullBleed then Enum.ScreenInsets.None else Enum.ScreenInsets.DeviceSafeInsets
+	gui.ClipToDeviceSafeArea = not fullBleed
+end
+
 function ScreenLayout.isGamepad(input)
 	return string.match(input.Name, "^Gamepad") ~= nil
 end

@@ -1,4 +1,5 @@
 local addDetails = require("./StoreDetails")
+local surfaces = require("./StoreSurfaces")
 local Headwear = require("../src/shared/Headwear")
 
 local function build(roblox, layout, makeR6, closet, outfit)
@@ -16,7 +17,7 @@ local function build(roblox, layout, makeR6, closet, outfit)
 	local mint = rgb(131, 221, 178)
 	local coral = rgb(245, 133, 109)
 	local steel = rgb(111, 135, 167)
-	local floor = rgb(209, 221, 233)
+	local floor = rgb(221, 231, 239)
 	local concrete = rgb(167, 182, 200)
 	local glass = rgb(157, 217, 252)
 	local store = Instance.new("Model")
@@ -35,7 +36,7 @@ local function build(roblox, layout, makeR6, closet, outfit)
 		object.Size = size
 		object.CFrame = frame
 		object.Color = color
-		object.Material = material or Enum.Material.SmoothPlastic
+		object.Material = material or surfaces.material(Enum, name)
 		object.Anchored = true
 		object.CanCollide = solid == true
 		object.CanTouch = false
@@ -86,7 +87,7 @@ local function build(roblox, layout, makeR6, closet, outfit)
 	local markers = folder(store, "Markers")
 
 	box(lot, "Ground", v(246, 2, 226), v(0, -2, 17), concrete, true)
-	box(lot, "Car Park", v(230, .9, 69), v(0, -.54, 96), rgb(64, 83, 110), true)
+	box(lot, "Car Park", v(230, .9, 69), v(0, -.54, 96), rgb(77, 92, 114), true)
 	box(lot, "Front Pavement", v(190, 1.1, 18), v(0, -.54, 77), floor, true)
 	box(lot, "Crew Patio", v(32, .6, 23), v(0, -.28, 106), navy, true)
 	box(lot, "Crew Stripe", v(32, .04, .35), v(0, .035, 96), yellow)
@@ -134,12 +135,19 @@ local function build(roblox, layout, makeR6, closet, outfit)
 	for _, x in { -13, 13 } do
 		box(building, "Door Bollard", v(.52, 3.6, .52), v(x, 1.8, 75), yellow, true)
 	end
-	for _, z in { -61, -44, -27, -10, 7, 24, 41, 58 } do
+	for row, z in { -61, -44, -27, -10, 7, 24, 41, 58 } do
 		box(building, "Ceiling Beam", v(172, .65, 1.15), v(0, 19.9, z), steel)
-		local roof = box(building, "Roof Panel", v(174, .75, 17), v(0, 21.2, z), rgb(211, 229, 244))
-		roof.Transparency = .29
+		local roof = box(building, "Roof Panel", v(174, 1.05, 17.01), v(0, 21.2, z), rgb(211, 229, 244))
+		roof.Transparency = .07
+		roof.CastShadow = true
 		for _, x in { -64, -32, 0, 32, 64 } do
-			box(building, "LED Strip", v(10, .22, .7), v(x, 19.48, z), white, false, Enum.Material.Neon)
+			box(building, "Light Housing", v(10.55, .19, 1.12), v(x, 19.59, z), navy, false, Enum.Material.Metal)
+			local strip = box(building, "LED Strip", v(10, .17, .68), v(x, 19.43, z), white, false, Enum.Material.Neon)
+			if row % 2 == 1 then
+				local lamp = folder(strip, "Sales Floor Light", "SurfaceLight")
+				lamp.Face, lamp.Angle, lamp.Range = Enum.NormalId.Bottom, 133, 27
+				lamp.Color, lamp.Brightness, lamp.Shadows = if x == 0 then rgb(224, 239, 255) else rgb(255, 242, 222), 1.45, x == 0
+			end
 		end
 	end
 	box(building, "Main Aisle Stripe", v(170, .035, .22), v(0, .019, 40.2), blue)
@@ -181,6 +189,9 @@ local function build(roblox, layout, makeR6, closet, outfit)
 			end
 			for tier = 0, 3 do
 				box(shelf, "Shelf", v(5.62, .26, 29.8), v(x, .46 + tier * 1.88, z), white)
+				for _, side in { -1, 1 } do
+					box(shelf, "Gondola Fascia", v(.10, .14, 29.8), v(x + side * 2.8, .48 + tier * 1.88, z), if tier == 0 then royal else tint)
+				end
 			end
 			for section = -3, 3 do
 				for tier = 0, 2 do
@@ -188,7 +199,8 @@ local function build(roblox, layout, makeR6, closet, outfit)
 						local color = packaging[(index + section + tier + row + side) % #packaging + 1]
 						local height = .68 + ((section + index + tier) % 3) * .19
 						local xx, yy, zz = x + side * 1.42, .59 + tier * 1.88 + height / 2, z + section * 4
-						local stock = box(shelf, "Stock", v(1.95, height, 2.8), v(xx, yy, zz), color)
+						local stock = box(shelf, "Stock", v(1.95, height, 2.8), v(xx, yy, zz), color, false,
+							if index == 1 then Enum.Material.SmoothPlastic else Enum.Material.Cardboard)
 						if index == 1 or index == 3 then
 							stock.Size = v(1.72, height, 2.25)
 							stock.Shape = if index == 1 then Enum.PartType.Ball else Enum.PartType.Block
@@ -278,11 +290,13 @@ local function build(roblox, layout, makeR6, closet, outfit)
 		mark(cameras, shot[1], CFrame.lookAt(shot[2], shot[3]))
 	end
 
-	addDetails({
+	local kit = {
 		v = v, rgb = rgb, box = box, part = part, folder = folder, text = text, cf = CFrame, enum = Enum,
 		blue = blue, royal = royal, navy = navy, yellow = yellow, steel = steel, white = white,
 		store = store, layout = layout, building = building, lot = lot, bay = bay, checkout = checkout,
-	})
+	}
+	addDetails(kit)
+	surfaces.decorate(kit)
 	return store
 end
 

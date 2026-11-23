@@ -67,7 +67,7 @@ end
 function ShopMenu.new(parent, player, actions)
 	local gui = item("ScreenGui", parent)
 	gui.Name, gui.DisplayOrder, gui.ResetOnSpawn = "WWMS Menu", 25, false
-	gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+	ScreenLayout.applyInsets(gui)
 	local self = setmetatable({
 		gui = gui, player = player, actions = actions, filters = { page = 1, categoryPage = 1, category = "", query = "" },
 	}, ShopMenu)
@@ -163,7 +163,7 @@ function ShopMenu:resize()
 	local left = if width < 500 then 211 else 329
 	local amount = ScreenLayout.scale(size, width, height, 24, if self.tv then 1.2 else 1, .75)
 	self.launchScale.Scale = ScreenLayout.scale(size, 97, 52, 20, if self.tv then 1.18 else 1)
-	local menuY = if size.X < 620 then math.min(155, math.floor(size.X / 3.52)) else 10
+	local menuY = if size.X < 620 then 158 else 57
 	self.launcher.Position, self.launcher.Size = UDim2.new(1, -14, 0, menuY), pixel(96, 48)
 	self.panel.Size, self.panelScale.Scale = pixel(width, height), amount
 	local canvas = math.max(size.Y, height * amount + 26)
