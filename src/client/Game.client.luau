@@ -190,7 +190,7 @@ local function refresh(now)
 			view.tipTitle.Text, view.tipText.Text = "You slipped!", "Wait to get back up."
 		end
 	elseif room and view.countdown then
-		view.countdown.Text = tostring(math.max(1, math.ceil(room.deadline - now)))
+		view:setCountdown(math.max(1, math.ceil(room.deadline - now)))
 	end
 end
 

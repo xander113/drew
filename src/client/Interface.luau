@@ -1,7 +1,7 @@
 local ScreenLayout = require(script.Parent.ScreenLayout)
 local SoundEffects = require(script.Parent.SoundEffects)
 local GuiService = game:GetService("GuiService")
-local TweenService = game:GetService("TweenService")
+local Motion = require(script.Parent.UiMotion)
 local UserInputService = game:GetService("UserInputService")
 
 local Interface = {}
@@ -65,46 +65,50 @@ local function screen(parent, name, order, full)
 	return gui
 end
 
-local function tween(object, length, values, style)
-	if GuiService.ReducedMotionEnabled then
-		for key, value in values do object[key] = value end
-		return nil
-	end
-	local animation = TweenService:Create(object, TweenInfo.new(length, style or Enum.EasingStyle.Quad, Enum.EasingDirection.Out), values)
-	animation:Play()
-	return animation
-end
-
 local function action(view, parent, caption, x, y, width, height, tint, callback, options)
 	options = options or {}
 	local base = box(parent, caption .. " Button", x, y, width, height + 5)
-	local shadow = box(base, "Edge", 0, 5, width, height, INK, options.radius or 15)
-	shadow.BackgroundTransparency = .12
+	local shadow = box(base, "Edge", 0, 5, width, height, INK, options.radius or 11)
+	shadow.BackgroundTransparency = .02
 	local button = item("TextButton", caption, base)
 	button.Position, button.Size = offset(0, 0), offset(width, height)
 	button.AutoButtonColor, button.Selectable = false, true
 	button.Text = ""
-	fill(button, tint, options.radius or 15)
+	fill(button, tint, options.radius or 11)
 
 	local color = if tint == BLUE then WHITE else INK
 	if options.detail then
-		label(button, "Name", caption, 17, 4, width - 34, 32, options.size or 25, color, DISPLAY)
-		label(button, "Detail", options.detail, 18, 35, width - 34, 22, 14, color)
+		local slash = box(button, "Accent", 13, 12, 5, height - 24, if tint == BLUE then GOLD else BLUE, 2)
+		slash.Rotation = 9
+		label(button, "Name", caption, 29, 3, width - 71, 32, options.size or 27, color, DISPLAY)
+		label(button, "Detail", options.detail, 30, 32, width - 70, 22, 14, color)
+		if width >= 300 then
+			local badge = box(button, "Arrow", width - 55, (height - 36) / 2, 38, 36, if tint == BLUE then GOLD else INK, 8)
+			badge.Rotation = -8
+			label(badge, "Next", "›", 0, -3, 38, 36, 34, if tint == BLUE then INK else WHITE, DISPLAY, CENTER)
+		end
 	else
 		label(button, "Name", caption, 5, 0, width - 10, height, options.size or 22, color, DISPLAY, CENTER)
 	end
-	local focus = outline(button, INK, 3)
-	focus.Transparency = 1
-	button.SelectionGained:Connect(function() focus.Transparency = 0 end)
-	button.SelectionLost:Connect(function() focus.Transparency = 1 end)
-	button.MouseEnter:Connect(function()
-		if not GuiService.ReducedMotionEnabled then tween(button, .12, { Position = offset(0, -2) }) end
+	local focus = outline(button, INK, 2)
+	local function settle(y, angle, seconds, style)
+		local reduced = GuiService.ReducedMotionEnabled
+		Motion.tween(button, seconds, {
+			Position = offset(0, if reduced then 0 else y), Rotation = if reduced then 0 else angle,
+		}, style)
+	end
+	button.SelectionGained:Connect(function()
+		focus.Color, focus.Thickness = if tint == BLUE then GOLD else BLUE, 4
+		settle(-3, -1, .21, Enum.EasingStyle.Back)
 	end)
-	button.MouseLeave:Connect(function() tween(button, .14, { Position = offset(0, 0) }) end)
-	button.MouseButton1Down:Connect(function()
-		if not GuiService.ReducedMotionEnabled then tween(button, .08, { Position = offset(0, 4) }) end
+	button.SelectionLost:Connect(function()
+		focus.Color, focus.Thickness = INK, 2
+		settle(0, 0, .15)
 	end)
-	button.MouseButton1Up:Connect(function() tween(button, .13, { Position = offset(0, 0) }) end)
+	button.MouseEnter:Connect(function() settle(-3, -1, .21, Enum.EasingStyle.Back) end)
+	button.MouseLeave:Connect(function() settle(0, 0, .15) end)
+	button.MouseButton1Down:Connect(function() settle(4, 1, .08) end)
+	button.MouseButton1Up:Connect(function() settle(0, 0, .22, Enum.EasingStyle.Back) end)
 	button.Activated:Connect(function()
 		SoundEffects.play("Menu")
 		callback()
@@ -136,7 +140,7 @@ function Interface.new(parent, config, pay)
 	local backdrop = screen(parent, "WWMS Film", 20, true)
 	self.backdrop = backdrop
 	local shade = fill(item("Frame", "Shade", backdrop), INK)
-	shade.Size, shade.BackgroundTransparency = scale(1, 1), .57
+	shade.Size, shade.BackgroundTransparency = scale(1, 1), .47
 	local fade = fill(item("Frame", "Cut", backdrop), INK)
 	fade.Size, fade.BackgroundTransparency, fade.ZIndex = scale(1, 1), 1, 2
 	self.fade = fade
@@ -152,23 +156,26 @@ function Interface.new(parent, config, pay)
 	self.menuScroll = menuScroll
 	local header = box(menuScroll, "WWMS", 0, 0, 468, 46)
 	self.header, self.headerScale = header, item("UIScale", "Scale", header)
-	local logo = box(header, "Shop mark", 0, 0, 87, 43, BLUE, 16)
+	local logo = box(header, "Shop mark", 0, 0, 87, 43, BLUE, 9)
+	logo.Rotation = -5
 	outline(logo, WHITE, 2)
 	label(logo, "Logo", "WWMS", 0, 0, 87, 43, 19, GOLD, DISPLAY, CENTER)
-	local wallet = box(header, "Wallet", 267, 1, 201, 42, GOLD, 20)
+	local wallet = box(header, "Wallet", 267, 1, 201, 42, GOLD, 11)
+	outline(wallet, INK, 2)
 	local coin = box(wallet, "Coin", 8, 8, 26, 26, PAPER, 20)
 	label(coin, "Coin mark", "W", 0, 0, 26, 26, 15, INK, DISPLAY, CENTER)
 	self.balance = label(wallet, "Balance", "Walbucks …", 42, 0, 152, 42, 16, INK, BOLD)
 
 	local ticket = box(menuScroll, "Ticket", 0, 0, 468, 488)
 	self.ticket, self.ticketScale = ticket, item("UIScale", "Scale", ticket)
-	box(ticket, "Ticket shadow", 0, 8, 468, 488, INK, 24)
-	local surface = box(ticket, "Paper", 0, 0, 468, 488, PAPER, 24)
-	outline(surface, INK, 2)
-	box(surface, "Top trim", 20, 0, 428, 6, GOLD, 3)
+	box(ticket, "Ticket shadow", 5, 8, 468, 488, INK, 17)
+	local surface = box(ticket, "Paper", 0, 0, 468, 488, PAPER, 15)
+	outline(surface, INK, 3)
+	local trim = box(surface, "Top trim", 20, 0, 428, 6, GOLD, 3)
+	trim.Rotation = -1
 	self.pageLayer = box(surface, "Pages", 0, 0, 468, 488)
 	self.pageLayer.ClipsDescendants = true
-	self.notice = label(surface, "Message", "", 23, 451, 420, 26, 14, RED, BOLD, CENTER)
+	self.notice = label(surface, "Message", "", 23, 459, 420, 25, 14, RED, BOLD, CENTER)
 	self.notice.TextWrapped, self.notice.TextTruncate = true, Enum.TextTruncate.None
 	self.notice.ZIndex = 4
 
@@ -182,21 +189,28 @@ function Interface.new(parent, config, pay)
 	fill(sprint, BLUE, 15)
 	outline(sprint, WHITE, 2)
 	self.sprint = sprint
-	local top = box(hud, "Shift score", 0, 0, 376, 100, PAPER, 18)
+	local top = box(hud, "Shift score", 0, 0, 376, 100, INK, 12)
 	top.AnchorPoint, top.Position = Vector2.new(.5, 0), UDim2.new(.5, 0, 0, 8)
 	self.hudScore = top
-	outline(top, INK, 2)
+	outline(top, BLUE, 3)
 	self.hudScale = item("UIScale", "Scale", top)
-	self.hudLevel = label(top, "Level", "", 15, 8, 230, 18, 13, BLUE, BOLD)
-	self.progress = label(top, "Carts", "", 15, 25, 229, 31, 26, INK, DISPLAY)
-	self.timer = label(top, "Time", "", 244, 16, 115, 43, 31, INK, DISPLAY, Enum.TextXAlignment.Right)
-	local track = box(top, "Cart bar", 15, 64, 346, 8, LIGHT_BLUE, 4)
-	self.bar = box(track, "Carts back", 0, 0, 0, 8, BLUE, 4)
-	self.personal = label(top, "My carts", "", 15, 74, 342, 20, 13, INK, BOLD)
+	local plate = box(top, "Score paper", 3, 3, 370, 92, PAPER, 9)
+	local level = box(plate, "Level badge", 12, 6, 112, 19, GOLD, 5)
+	level.Rotation = -4
+	self.hudLevel = label(level, "Level", "", 0, 0, 112, 19, 13, INK, BOLD, CENTER)
+	self.progress = label(plate, "Carts", "", 13, 27, 210, 31, 28, INK, DISPLAY)
+	self.progressScale = item("UIScale", "Score pop", self.progress)
+	local timer = box(plate, "Timer plate", 240, 9, 113, 47, BLUE, 8)
+	timer.Rotation = 3
+	self.timerPlate = timer
+	self.timer = label(timer, "Time", "", 0, 0, 113, 47, 34, WHITE, DISPLAY, CENTER)
+	local track = box(plate, "Cart bar", 12, 61, 346, 9, LIGHT_BLUE, 4)
+	self.bar = box(track, "Carts back", 0, 0, 0, 9, BLUE, 4)
+	self.personal = label(plate, "My carts", "", 12, 72, 342, 19, 13, INK, BOLD)
 
-	local tip = box(hud, "Shift help", 0, 0, 377, 68, INK, 16)
+	local tip = box(hud, "Shift help", 0, 0, 377, 68, INK, 10)
 	tip.AnchorPoint, tip.Visible = Vector2.new(.5, 1), false
-	outline(tip, WHITE, 1)
+	outline(tip, GOLD, 2)
 	self.tip, self.tipScale = tip, item("UIScale", "Scale", tip)
 	self.tipTitle = label(tip, "Action", "", 15, 8, 346, 24, 20, GOLD, DISPLAY, CENTER)
 	self.tipText = label(tip, "Help", "", 13, 33, 351, 25, 14, WHITE, BODY, CENTER)
@@ -255,7 +269,9 @@ function Interface:setNotice(message, pending)
 end
 
 local function title(parent, value, subtitle)
-	label(parent, "Title", value, 23, 57, 420, 58, 42, INK, DISPLAY)
+	local accent = box(parent, "Title underline", 24, 105, 122, 7, GOLD, 2)
+	accent.Rotation = -4
+	label(parent, "Title", value, 23, 57, 420, 58, 44, INK, DISPLAY)
 	if subtitle then label(parent, "Help", subtitle, 24, 115, 420, 27, 17) end
 end
 
@@ -375,28 +391,37 @@ function Interface:showPage(route, model, actions)
 	self.route, self.first, self.list, self.countdown, self.controls = route, nil, nil, nil, {}
 	self.musicDrag, self.paintMusic = nil, nil
 	if self.slide then self.slide:Cancel() end
+	if self.countdownTween then self.countdownTween:Cancel() end
 	self.pageLayer:ClearAllChildren()
 	local page = item("Frame", route, self.pageLayer)
-	page.Size = scale(1, 1)
+	page.Size, page.Position, page.Rotation = scale(1, 1), offset(0, 0), 0
 	page.BackgroundTransparency = 1
-	if route ~= lastRoute and not GuiService.ReducedMotionEnabled then
-		page.Position = offset(16, 0)
-		self.slide = tween(page, .23, { Position = offset(0, 0) }, Enum.EasingStyle.Cubic)
-	end
+	if route ~= lastRoute then self.slide = Motion.arrive(page, 14, 9, 0, .27) end
 
 	local room = model.room
 	if route == "Home" then
-		label(page, "Title", "Cart", 23, 37, 331, 69, 65, INK, DISPLAY)
-		label(page, "Title", "Catcher!", 23, 95, 331, 72, 65, BLUE, DISPLAY)
-		local mark = box(page, "WWMS stamp", 351, 53, 92, 85, GOLD, 19)
-		mark.Rotation = -8
-		label(mark, "WWMS", "WWMS", 1, 0, 90, 85, 23, INK, DISPLAY, CENTER)
-		label(page, "Shop name", "Willy Walter’s Mega Shop", 27, 177, 414, 28, 19, INK, BOLD)
-		label(page, "How to play", "Bring carts back before time runs out.", 27, 205, 414, 27, 17)
-		action(self, page, "Solo mode", 23, 261, 421, 66, BLUE, function() actions.go("Solo") end, { detail = "Play on your own" })
-		action(self, page, "Multi", 23, 344, 421, 65, MINT, function() actions.go("Multi") end, { detail = "Play with others" })
-		action(self, page, "Shop", 23, 430, 204, 39, GOLD, actions.shop, { size = 20, radius = 12 })
-		action(self, page, "Music", 238, 430, 206, 39, LIGHT_BLUE, function() actions.go("Music") end, { size = 20, radius = 12 })
+		box(page, "Sign shadow", 25, 23, 423, 214, INK, 11)
+		local hero = box(page, "Store sign", 21, 16, 423, 214, BLUE, 9)
+		hero.Rotation = 0
+		outline(hero, INK, 3)
+		local edge = box(hero, "Gold panel", 346, 14, 42, 58, GOLD, 7)
+		edge.Rotation = 15
+		local beam = box(hero, "Blue panel", 378, 14, 20, 58, Color3.fromRGB(78, 169, 255), 4)
+		beam.Rotation = 15
+		local cart = label(hero, "Cart", "Cart", 19, 3, 320, 68, 69, WHITE, DISPLAY)
+		cart.Rotation = -4
+		local shadow = label(hero, "Title shadow", "Catcher!", 24, 61, 383, 80, 69, INK, DISPLAY)
+		shadow.Rotation = -4
+		local title = label(hero, "Catcher", "Catcher!", 21, 56, 383, 80, 69, GOLD, DISPLAY)
+		title.Rotation = -4
+		local ribbon = box(hero, "Store line", 15, 149, 393, 49, INK, 7)
+		label(ribbon, "Shop name", "Willy Walter’s Mega Shop", 13, 4, 366, 20, 16, WHITE, BOLD)
+		label(ribbon, "How to play", "Bring carts back before time runs out.", 13, 25, 366, 19, 14, WHITE, BODY)
+		if route ~= lastRoute then Motion.arrive(hero, 0, 6, 2, .33) end
+		action(self, page, "Solo mode", 23, 250, 421, 66, BLUE, function() actions.go("Solo") end, { detail = "Play on your own" })
+		action(self, page, "Multi", 23, 326, 421, 65, MINT, function() actions.go("Multi") end, { detail = "Play with others" })
+		action(self, page, "Shop", 23, 405, 204, 42, GOLD, actions.shop, { size = 20, radius = 12 })
+		action(self, page, "Music", 238, 405, 206, 42, LIGHT_BLUE, function() actions.go("Music") end, { size = 20, radius = 12 })
 	elseif route == "Music" then
 		back(self, page, function() actions.go("Home") end)
 		title(page, "Music")
@@ -474,7 +499,14 @@ function Interface:showPage(route, model, actions)
 		action(self, page, "Save", 23, 360, 421, 54, BLUE, function() actions.send("Level", model.roomLevel) end)
 	elseif route == "Briefing" then
 		title(page, "Get ready", self.config.Levels[room.level].name)
-		self.countdown = label(page, "Countdown", "", 23, 164, 421, 129, 108, BLUE, DISPLAY, CENTER)
+		local shade = box(page, "Number shadow", 169, 171, 144, 137, INK, 10)
+		shade.Rotation = -6
+		local card = box(page, "Countdown card", 162, 161, 144, 137, GOLD, 10)
+		card.Rotation = -6
+		outline(card, INK, 3)
+		self.countdown = label(card, "Countdown", "", 0, 0, 144, 137, 108, INK, DISPLAY, CENTER)
+		self.countdown.AnchorPoint, self.countdown.Position = Vector2.new(.5, .5), scale(.5, .5)
+		self.countdownScale = item("UIScale", "Number pop", self.countdown)
 		label(page, "Help", "Grab a cart and push it back.", 23, 321, 421, 41, 20, INK, BOLD, CENTER)
 	elseif route == "Results" then
 		local result, mine = room.result, room.mine
@@ -482,8 +514,16 @@ function Interface:showPage(route, model, actions)
 		back(self, page, function() actions.send("Leave") end, "Leave")
 		title(page, if result.outcome == "Filled" then "You filled it!" else "Time’s up",
 			string.format("%d/%d crew carts. You brought back %d.", result.banked, result.goal, if mine then mine.carts else 0))
-		local bill = box(page, "Pay", 23, 152, 421, 156, MINT, 17)
-		label(bill, "Total", "+" .. self.pay.format(if pay then pay.total else 0) .. " Walbucks", 12, 7, 397, 45, 30, INK, DISPLAY, CENTER)
+		box(page, "Pay shadow", 28, 158, 421, 156, INK, 10)
+		local bill = box(page, "Pay", 23, 152, 421, 156, MINT, 10)
+		outline(bill, INK, 2)
+		local banner = box(bill, "Pay strip", 12, 7, 397, 42, if result.outcome == "Filled" then GOLD else LIGHT_BLUE, 6)
+		label(bill, "Total", "+" .. self.pay.format(if pay then pay.total else 0) .. " Walbucks", 12, 7, 397, 42, 31, INK, DISPLAY, CENTER)
+		banner.Rotation = -1
+		if route ~= lastRoute then
+			bill.Rotation = 0
+			Motion.arrive(bill, 0, 9, -3, .33)
+		end
 		if pay and pay.total > 0 then
 			for index, line in { {"Your work", pay.work}, {"Crew pay", pay.team}, {"Full bay bonus", pay.bonus} } do
 				label(bill, "Pay item", line[1], 19, 50 + (index - 1) * 30, 180, 28, 16, INK, BOLD)
@@ -510,14 +550,37 @@ function Interface:showPage(route, model, actions)
 	if selectedKey and self.controls[selectedKey] then GuiService.SelectedObject = self.controls[selectedKey] end
 end
 
+function Interface:setCountdown(seconds)
+	local number = tostring(seconds)
+	if self.countdown.Text ~= number then
+		self.countdown.Text = number
+		if self.countdownTween then self.countdownTween:Cancel() end
+		self.countdownTween = Motion.pulse(self.countdownScale, .7)
+	end
+end
+
 function Interface:showShift(room, seconds, personal, carrying, input)
 	self.hudLevel.Text = self.config.Levels[room.level].name
 	self.progress.Text = string.format("Carts %d/%d", room.banked, room.goal)
-	self.timer.Text, self.timer.TextColor3 = clock(seconds), if seconds <= 15 then RED else INK
+	self.timer.Text = clock(seconds)
+	local low = seconds <= 15 and room.banked < room.goal
+	self.timerPlate.BackgroundColor3 = if low then RED else BLUE
+	self.timer.TextColor3 = if low then WHITE else PAPER
+	if self.lowTime ~= low then
+		self.lowTime = low
+		if self.timerTween then self.timerTween:Cancel() end
+		self.timerPlate.Position, self.timerPlate.Rotation = offset(240, 9), 3
+		if low then self.timerTween = Motion.arrive(self.timerPlate, 0, -3, -11, .31) end
+	end
 	local ratio = math.clamp(room.banked / math.max(room.goal, 1), 0, 1)
 	if self.ratio ~= ratio then
 		if self.fillTween then self.fillTween:Cancel() end
-		self.fillTween = tween(self.bar, .19, { Size = UDim2.new(ratio, 0, 0, 8) })
+		self.fillTween = Motion.tween(self.bar, .19, { Size = UDim2.new(ratio, 0, 0, 9) })
+		if self.ratio and ratio > self.ratio then
+			if self.scoreTween then self.scoreTween:Cancel() end
+			self.scoreTween = Motion.pulse(self.progressScale, .86)
+		end
+		self.bar.BackgroundColor3 = if ratio >= 1 then Color3.fromRGB(42, 154, 87) else BLUE
 		self.ratio = ratio
 	end
 	self.personal.Text = "Your carts: " .. personal

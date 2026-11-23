@@ -1,5 +1,5 @@
 local GuiService = game:GetService("GuiService")
-local TweenService = game:GetService("TweenService")
+local Motion = require(script.Parent.UiMotion)
 
 local AvatarPreview = require(script.Parent.AvatarPreview)
 local ScreenLayout = require(script.Parent.ScreenLayout)
@@ -37,31 +37,31 @@ local function label(parent, value, size)
 end
 
 local function button(parent, value, color, invoke, size)
-	local btn = item("TextButton", parent, color, 14)
+	local btn = item("TextButton", parent, color, 9)
 	btn.Text, btn.TextSize, btn.Font = value, size or 21, DISPLAY
 	btn.TextColor3 = if color == BLUE then WHITE else INK
 	btn.Active, btn.Selectable = true, true
-	local focus = Instance.new("UIStroke")
-	focus.Color, focus.Thickness = INK, 3
-	focus.ApplyStrokeMode, focus.Transparency, focus.Parent = Enum.ApplyStrokeMode.Border, 1, btn
-	btn.SelectionGained:Connect(function() focus.Transparency = 0 end)
-	btn.SelectionLost:Connect(function() focus.Transparency = 1 end)
+	local edge = item("UIStroke", btn)
+	edge.Color, edge.Thickness, edge.ApplyStrokeMode = INK, 2, Enum.ApplyStrokeMode.Border
+	btn.SelectionGained:Connect(function()
+		edge.Color, edge.Thickness = if color == BLUE then GOLD else BLUE, 4
+		if not GuiService.ReducedMotionEnabled then Motion.tween(btn, .22, { Rotation = -1.5 }, Enum.EasingStyle.Back) end
+	end)
+	btn.SelectionLost:Connect(function()
+		edge.Color, edge.Thickness = INK, 2
+		Motion.tween(btn, .16, { Rotation = 0 })
+	end)
+	btn.MouseButton1Down:Connect(function()
+		if not GuiService.ReducedMotionEnabled then Motion.tween(btn, .08, { Rotation = 1.5 }) end
+	end)
+	btn.MouseButton1Up:Connect(function() Motion.tween(btn, .21, { Rotation = 0 }, Enum.EasingStyle.Back) end)
+	btn.MouseLeave:Connect(function() Motion.tween(btn, .14, { Rotation = 0 }) end)
 	btn.Activated:Connect(function()
 		if not btn.Active then return end
 		SoundEffects.play("Menu")
 		invoke()
 	end)
 	return btn
-end
-
-local function tween(object, seconds, properties)
-	if GuiService.ReducedMotionEnabled then
-		for property, value in properties do object[property] = value end
-		return nil
-	end
-	local move = TweenService:Create(object, TweenInfo.new(seconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out), properties)
-	move:Play()
-	return move
 end
 
 function ShopMenu.new(parent, player, actions)
@@ -84,15 +84,19 @@ function ShopMenu.new(parent, player, actions)
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 	self.scroll = scroll
 
-	local panel = item("Frame", scroll, PAPER, 25)
+	local panel = item("Frame", scroll, PAPER, 15)
 	panel.SelectionGroup = true
 	panel.SelectionBehaviorUp, panel.SelectionBehaviorDown = Enum.SelectionBehavior.Stop, Enum.SelectionBehavior.Stop
 	panel.SelectionBehaviorLeft, panel.SelectionBehaviorRight = Enum.SelectionBehavior.Stop, Enum.SelectionBehavior.Stop
 	self.panel, self.panelScale = panel, item("UIScale", panel)
 	local outline = item("UIStroke", panel)
-	outline.Color, outline.Thickness = BLUE, 5
+	outline.Color, outline.Thickness = INK, 4
 
-	self.title = label(panel, "", 35)
+	self.titlePlate = item("Frame", panel, BLUE, 8)
+	self.titleTrim = item("Frame", self.titlePlate, GOLD, 3)
+	self.titleTrim.Rotation = -9
+	self.title = label(self.titlePlate, "", 32)
+	self.title.TextColor3 = WHITE
 	self.balance = label(panel, "", 16)
 	self.balance.TextXAlignment = Enum.TextXAlignment.Right
 	self.back = button(panel, "Back", PALE, function() actions.back() end)
@@ -128,7 +132,10 @@ function ShopMenu.new(parent, player, actions)
 		if self.selected then actions.buy(self.selected.key) end
 	end)
 
-	local stage = item("ViewportFrame", panel, PALE, 21)
+	local stage = item("ViewportFrame", panel, PALE, 13)
+	local stageFrame = item("UIStroke", stage)
+	stageFrame.Color, stageFrame.Thickness = BLUE, 2
+	stageFrame.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stage.LightColor, stage.Ambient = WHITE, rgb(208, 231, 253)
 	stage.LightDirection = Vector3.new(-1, -.4, -.75)
 	self.stage, self.world = stage, item("WorldModel", stage)
@@ -171,10 +178,12 @@ function ShopMenu:resize()
 	self.scroll.ScrollingEnabled = canvas > size.Y + 1
 	self.panelHome = pixel(math.floor((size.X - width * amount) / 2), math.max(12, math.floor((size.Y - height * amount) / 2)))
 	if self.move then self.move:Cancel(); self.move = nil end
-	self.panel.Position = self.panelHome
+	self.panel.Position, self.panel.Rotation = self.panelHome, 0
 	place(self.back, 20, 17, 87, 42)
 	place(self.balance, width - 220, 17, 196, 37)
-	place(self.title, 22, 59, width - 44, 43)
+	place(self.titlePlate, 19, 59, width - 38, 44)
+	place(self.titleTrim, width - 64, 8, 11, 28)
+	place(self.title, 12, 0, width - 80, 44)
 	place(self.info, 22, 114, width - 44, 46)
 	place(self.notice, 23, height - 35, width - 46, 26)
 	place(self.first, 22, 169, width - 44, 49)
@@ -361,10 +370,7 @@ function ShopMenu:show(mode)
 	end
 	self.scroll.CanvasPosition = Vector2.zero
 	self:resize()
-	if self.panelHome then
-		self.panel.Position = self.panelHome + pixel(0, 15)
-		self.move = tween(self.panel, .25, { Position = self.panelHome })
-	end
+	if self.panelHome then self.move = Motion.arrive(self.panel, 14, 15, -2, .29) end
 end
 
 function ShopMenu:step(dt)

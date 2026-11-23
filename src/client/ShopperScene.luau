@@ -1,5 +1,5 @@
 local GuiService = game:GetService("GuiService")
-local TweenService = game:GetService("TweenService")
+local Motion = require(script.Parent.UiMotion)
 local Workspace = game:GetService("Workspace")
 local ScreenLayout = require(script.Parent.ScreenLayout)
 local SoundEffects = require(script.Parent.SoundEffects)
@@ -40,11 +40,9 @@ local function text(parent, x, y, w, h, value, size, color, font, centered)
 	return item
 end
 
-local function pop(item)
-	if GuiService.ReducedMotionEnabled then return end
-	local rest = item.Position
-	item.Position = rest + offset(0, 17)
-	TweenService:Create(item, TweenInfo.new(.29, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = rest }):Play()
+local function border(frame, color, thickness)
+	local stroke = object("UIStroke", frame)
+	stroke.ApplyStrokeMode, stroke.Color, stroke.Thickness = Enum.ApplyStrokeMode.Border, color, thickness
 end
 
 function ShopperScene.new(parent, player, remote, timing, helpRange)
@@ -55,26 +53,34 @@ function ShopperScene.new(parent, player, remote, timing, helpRange)
 		player = player, remote = remote, timing = timing, helpRange = helpRange, marks = {}, gui = gui,
 	}, ShopperScene)
 
-	local speech = box(gui, 0, 0, 640, 138, BLUE, 25)
-	speech.AnchorPoint = Vector2.new(.5, 1)
+	local speech = box(gui, 0, 0, 640, 138, INK, 12)
+	speech.AnchorPoint, speech.Rotation = Vector2.new(.5, 1), 0
 	speech.Visible, self.speech = false, speech
 	self.speechScale = object("UIScale", speech)
-	box(speech, 6, 7, 628, 121, PAPER, 21)
-	local nameplate = box(speech, 15, -28, 192, 43, GOLD, 14)
-	nameplate.Rotation = -4
-	self.speaker = text(nameplate, 16, 0, 163, 43, "", 23, INK, DISPLAY)
-	self.line = text(speech, 27, 27, 587, 61, "", 28, INK, DISPLAY)
-	self.line.TextWrapped = true
-	local rail = box(speech, 27, 101, 587, 7, rgb(198, 220, 247), 4)
+	border(speech, BLUE, 3)
+	box(speech, 5, 4, 630, 126, PAPER, 9)
+	local stripe = box(speech, 11, 38, 6, 55, BLUE, 2)
+	stripe.Rotation = 7
+	local shadow = box(speech, 20, -22, 192, 43, INK, 8)
+	shadow.Rotation = -6
+	local nameplate = box(speech, 15, -28, 192, 43, GOLD, 8)
+	nameplate.Rotation = -6
+	border(nameplate, INK, 2)
+	self.nameplate = nameplate
+	self.speaker = text(nameplate, 16, 0, 162, 43, "", 25, INK, DISPLAY)
+	self.line = text(speech, 28, 27, 585, 61, "", 29, INK, DISPLAY)
+	self.line.TextWrapped, self.line.Rotation = true, 0
+	local rail = box(speech, 27, 101, 587, 7, rgb(185, 207, 235), 3)
 	self.speechTime = box(rail, 0, 0, 587, 7, BLUE, 4)
 	self.caption = text(speech, 27, 111, 587, 19, "A shopper stopped you", 13, INK, BODY)
 	self.caption.TextXAlignment = Enum.TextXAlignment.Right
 
-	local portrait = box(gui, 0, 0, 163, 172, GOLD, 26)
-	portrait.AnchorPoint = Vector2.new(1, 0)
+	local portrait = box(gui, 0, 0, 163, 172, GOLD, 12)
+	portrait.AnchorPoint, portrait.Rotation = Vector2.new(1, 0), 4
+	border(portrait, INK, 4)
 	portrait.Visible, self.portrait = false, portrait
 	self.portraitScale = object("UIScale", portrait)
-	self.viewport = box(portrait, 8, 7, 147, 154, BLUE, 19, "ViewportFrame")
+	self.viewport = box(portrait, 8, 7, 147, 154, BLUE, 8, "ViewportFrame")
 	self.viewport.Ambient = rgb(230, 235, 246)
 	self.viewport.LightColor = WHITE
 	self.viewport.LightDirection = Vector3.new(-1, -.6, -1)
@@ -83,23 +89,29 @@ function ShopperScene.new(parent, player, remote, timing, helpRange)
 	self.faceCamera.CFrame = CFrame.lookAt(Vector3.new(-1.5, 1.9, -5.15), Vector3.new(0, 1.52, 0))
 	self.viewport.CurrentCamera = self.faceCamera
 
-	local help = box(gui, 0, 0, 366, 92, BLUE, 21)
-	help.AnchorPoint = Vector2.new(.5, 1)
+	local help = box(gui, 0, 0, 366, 92, INK, 11)
+	help.AnchorPoint, help.Rotation = Vector2.new(.5, 1), 0
+	self.helpHome = UDim2.new(.5, 0, 1, -25)
+	help.Position = self.helpHome
+	border(help, BLUE, 3)
 	help.Visible, self.help = false, help
 	self.helpScale = object("UIScale", help)
-	local button = box(help, 5, 5, 356, 81, PAPER, 17, "TextButton")
+	local button = box(help, 5, 5, 356, 81, PAPER, 8, "TextButton")
 	button.Text, button.AutoButtonColor, button.Selectable = "", true, false
 	self.helpButton = button
 	self.helpHeader = text(button, 13, 5, 329, 31, "Help your teammate", 23, INK, DISPLAY, true)
 	self.helpText = text(button, 12, 36, 331, 32, "", 16, INK, BODY, true)
-	local track = box(button, 17, 48, 322, 15, rgb(197, 216, 247), 8)
+	local track = box(button, 17, 49, 322, 15, INK, 5)
+	border(track, BLUE, 2)
 	self.track = track
-	self.zone = box(track, 0, 0, 60, 15, rgb(119, 228, 99), 8)
-	self.needle = box(track, 0, -3, 5, 21, BLUE, 4)
+	self.zone = box(track, 0, 0, 60, 15, rgb(119, 228, 99), 5)
+	self.needle = box(track, 0, -3, 5, 21, GOLD, 3)
+	border(self.needle, INK, 1)
 	button.Activated:Connect(function()
 		if not self.attempt or not self.touch then self:input() end
 	end)
-	local tap = box(button, 0, 79, 100, 47, GOLD, 13, "TextButton")
+	local tap = box(button, 0, 79, 100, 47, GOLD, 8, "TextButton")
+	border(tap, INK, 2)
 	tap.Text, tap.Font, tap.TextSize, tap.TextColor3 = "Tap", DISPLAY, 21, INK
 	tap.Visible, tap.Selectable, self.tapButton = false, false, tap
 	tap.Activated:Connect(function()
@@ -124,9 +136,17 @@ function ShopperScene:resize()
 	self.portraitScale.Scale = ScreenLayout.scale(dims, 215, 425, 22, if portrait then .76 else limit, .55)
 	self.helpScale.Scale = ScreenLayout.scale(dims, 366, 355, 26, limit, .84)
 	local bottom = if self.touch and portrait then -105 else -25
+	for _, animation in { self.speechEntry, self.portraitEntry, self.helpEntry } do animation:Cancel() end
+	self.speech.Rotation, self.help.Rotation, self.portrait.Rotation = 0, 0, 4
 	self.speech.Position = UDim2.new(.5, 0, 1, bottom)
-	self.help.Position = self.speech.Position
+	self.helpHome, self.help.Position = self.speech.Position, self.speech.Position
 	self.portrait.Position = UDim2.new(1, if portrait then -15 else -35, 0, if dims.X < 620 then 155 else 56)
+end
+
+function ShopperScene:showHelpMotion()
+	if self.helpEntry then self.helpEntry:Cancel() end
+	self.help.Position, self.help.Rotation = self.helpHome, 0
+	self.helpEntry = Motion.arrive(self.help, 0, 12, -3)
 end
 
 function ShopperScene:portraitOf(shopper)
@@ -145,7 +165,9 @@ function ShopperScene:mark(data)
 	badge.Name, badge.Adornee, badge.AlwaysOnTop = "Help marker", head, true
 	badge.Size, badge.MaxDistance = offset(103, 29), 125
 	badge.StudsOffsetWorldSpace = Vector3.new(0, 2.18, 0)
-	local bg = box(badge, 0, 0, 103, 29, RED, 12)
+	local bg = box(badge, 0, 0, 103, 29, RED, 7)
+	bg.Rotation = -6
+	border(bg, INK, 2)
 	text(bg, 0, 0, 103, 29, "Need help!", 16, WHITE, DISPLAY, true)
 	data.highlight, data.badge = mark, badge
 end
@@ -169,8 +191,9 @@ function ShopperScene:receive(kind, data)
 			self.line.Text, self.beat = "", nil
 			self.speech.Visible, self.portrait.Visible = true, true
 			self:portraitOf(data.shopper)
-			pop(self.speech)
-			pop(self.portrait)
+			self:resize()
+			self.speechEntry = Motion.arrive(self.speech, -15, 14, -2)
+			self.portraitEntry = Motion.arrive(self.portrait, 17, 8, 8, .32)
 		else
 			self:unmark(data.worker)
 			self.marks[data.worker] = data
@@ -189,7 +212,7 @@ function ShopperScene:receive(kind, data)
 	elseif kind == "RescueStart" then
 		data.step = 1
 		self.attempt = data
-		pop(self.help)
+		self:showHelpMotion()
 	elseif kind == "RescueStep" then
 		if self.attempt and self.attempt.id == data.id then self.attempt.step = data.step end
 	elseif kind == "RescueEnd" then
@@ -256,7 +279,11 @@ function ShopperScene:step(now, inputType, canHelp)
 			self.beat = beat
 			if beat > 1 then SoundEffects.play("Line") end
 			self.speaker.Text = if beat == 2 then "You" else scene.name
+			self.nameplate.BackgroundColor3 = if beat == 2 then rgb(169, 217, 255) else GOLD
 			self.line.Text = scene.lines[beat]
+			if self.lineEntry then self.lineEntry:Cancel() end
+			self.line.Position, self.line.Rotation = offset(28, 27), 0
+			self.lineEntry = Motion.arrive(self.line, if beat == 2 then 12 else -8, 4, 0, .19)
 		end
 		self.line.MaxVisibleGraphemes = if GuiService.ReducedMotionEnabled then -1 else math.max(0, math.floor((now - scene.start - (beat - 1) * section) * 58))
 		self.speechTime.Size = UDim2.new(math.clamp((scene.finish - now) / (scene.finish - scene.start), 0, 1), 0, 0, 7)
@@ -273,7 +300,7 @@ function ShopperScene:step(now, inputType, canHelp)
 		if target and not self.target and not self.attempt and now >= (self.nextBlip or 0) then
 			self.nextBlip = now + 1.2
 			SoundEffects.play("HelpReady")
-			pop(self.help)
+			self:showHelpMotion()
 		end
 		self.target, self.nextSearch = target, now + .12
 	end
