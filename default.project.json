@@ -1,0 +1,26 @@
+{
+  "name": "Cart Catcher!",
+  "tree": {
+    "$className": "DataModel",
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Ambient": [0.47, 0.55, 0.68],
+        "OutdoorAmbient": [0.61, 0.69, 0.79],
+        "Brightness": 2.2,
+        "ClockTime": 15.6,
+        "EnvironmentDiffuseScale": 0.7,
+        "EnvironmentSpecularScale": 0.35,
+        "GlobalShadows": true
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": { "StreamingEnabled": false },
+      "WWMS": { "$path": "world/WWMS.rbxm" }
+    },
+    "ReplicatedStorage": { "CartCatcher": { "$path": "src/shared" } },
+    "ServerScriptService": { "CartCatcher": { "$path": "src/server" } },
+    "StarterPlayer": { "StarterPlayerScripts": { "CartCatcher": { "$path": "src/client" } } }
+  }
+}
