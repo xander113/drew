@@ -1,6 +1,6 @@
 local CartSpawns = {}
 
-local STEP = 6.3
+local STEP = 7.1
 local CLEARANCE = 2.55
 
 local function fits(blockers, x, z)
@@ -23,11 +23,11 @@ function CartSpawns.pick(layout, random, count)
 	local zones = {}
 	for index = 1, 9 do zones[index] = {} end
 	-- One global grid keeps carts apart even where two store sections meet.
-	for row = 0, 17 do
+	for row = 0, 15 do
 		local z = -64 + row * STEP
-		for column = 0, 25 do
+		for column = 0, 23 do
 			local x = -80 + column * STEP + if row % 2 == 0 then 0 else STEP / 2
-			if x <= 81 and fits(layout.Blockers, x, z) then
+			if x <= 81 and fits(layout.Blockers, x, z) and fits(layout.WetSpots, x, z) then
 				local band = if z < -25 then 0 elseif z < 17 then 1 else 2
 				local aisle = if x < -29 then 1 elseif x < 29 then 2 else 3
 				table.insert(zones[band * 3 + aisle], Vector3.new(x, 0, z))

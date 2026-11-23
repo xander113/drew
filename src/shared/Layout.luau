@@ -23,23 +23,26 @@ layout.MiniObstacles = table.freeze({
 	obstacle("Pallet", -62, -48, 5.2, 4.2),
 	obstacle("Restock", -41, -34, 4.8, 3.8),
 	obstacle("Sale", -20, -52, 5.8, 4.6),
-	obstacle("Spill", 1, -40, 4.4, 3.6),
 	obstacle("Pallet", 23, -32, 5.2, 4.2),
 	obstacle("Restock", 44, -43, 4.8, 3.8),
 	obstacle("Sale", 67, -49, 5.8, 4.6),
-	obstacle("Spill", -65, -18, 4.4, 3.6),
 	obstacle("Sale", -42, -5, 5.8, 4.6),
 	obstacle("Pallet", -21, 7, 5.2, 4.2),
 	obstacle("Restock", 4, 16, 4.8, 3.8),
 	obstacle("Sale", 22, 2, 5.8, 4.6),
-	obstacle("Spill", 48, -5, 4.4, 3.6),
 	obstacle("Pallet", 68, 7, 5.2, 4.2),
 	obstacle("Restock", -61, 34, 4.8, 3.8),
-	obstacle("Spill", -16, 32, 4.4, 3.6),
 	obstacle("Sale", 25, 31, 5.8, 4.6),
 	obstacle("Pallet", 49, 32, 5.2, 4.2),
 	obstacle("Restock", 66, 32, 4.8, 3.8),
-	obstacle("Spill", 74, 41, 4.4, 3.6),
+})
+
+layout.WetSpots = table.freeze({
+	obstacle("Wet Spot", 1, -40, 4.4, 3.6),
+	obstacle("Wet Spot", -65, -18, 4.4, 3.6),
+	obstacle("Wet Spot", 48, -5, 4.4, 3.6),
+	obstacle("Wet Spot", -16, 32, 4.4, 3.6),
+	obstacle("Wet Spot", 74, 41, 4.4, 3.6),
 })
 
 local blockers = {}

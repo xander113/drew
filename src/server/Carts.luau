@@ -63,11 +63,11 @@ local function build(parent, frame)
 	beacon.MaxDistance = 54
 	beacon.AlwaysOnTop = false
 	beacon.Parent = root
-	local diamond = Instance.new("Frame")
-	diamond.AnchorPoint, diamond.Position = Vector2.new(.5, .5), UDim2.fromScale(.5, .5)
-	diamond.Size = UDim2.fromOffset(10, 10)
-	diamond.Rotation, diamond.BorderSizePixel, diamond.BackgroundColor3 = 45, 0, GOLD
-	diamond.Parent = beacon
+	local marker = Instance.new("TextLabel")
+	marker.Size, marker.BackgroundTransparency = UDim2.fromScale(1, 1), 1
+	marker.Font, marker.TextSize, marker.Text = Enum.Font.FredokaOne, 18, "!"
+	marker.TextColor3, marker.TextStrokeTransparency = GOLD, .36
+	marker.Parent = beacon
 
 	model.Parent = parent
 	return model, prompt

@@ -1,4 +1,5 @@
 local ContextActionService = game:GetService("ContextActionService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -17,6 +18,8 @@ local changed = shared:WaitForChild("LobbyChanged")
 local Interface = require(script.Parent.Interface)
 local ShopperScene = require(script.Parent.ShopperScene)
 local CartEffects = require(script.Parent.CartEffects)
+local ShopMenu = require(script.Parent.ShopMenu)
+local ShopperMotion = require(script.Parent.ShopperMotion)
 local Timing = require(shared:WaitForChild("RescueTiming"))
 local effectEvent = shared:WaitForChild("ShiftEffects")
 local rescueInput = shared:WaitForChild("RescueInput")
@@ -30,6 +33,9 @@ local gui = player:WaitForChild("PlayerGui")
 local view = Interface.new(gui, Config, Pay)
 local shopperScene = ShopperScene.new(gui, player, rescueInput, Timing, Config.RescueDistance)
 local cartEffects = CartEffects.new(view.hud, player)
+local shopActions = {}
+local shopMenu = ShopMenu.new(gui, player, shopActions)
+ShopperMotion.start()
 if not RunService:IsStudio() then TeleportService:SetTeleportGui(view:teleportGui()) end
 
 local route = "Loading"
@@ -42,6 +48,27 @@ local active, savedFov
 local filmStart = Workspace:GetServerTimeNow()
 local lastRefresh, nextBrowse = 0, 0
 local input = UserInputService:GetLastInputType()
+local controls
+local menuOpenedWithEscape = false
+local shopReturn, shopLoading
+local function modal(mode)
+	shopMenu:show(mode)
+	if controls then
+		if mode and active then controls:Disable() else controls:Enable() end
+	end
+	if string.match(input.Name, "^Gamepad") then
+		GuiService.SelectedObject = if mode then shopMenu.back else nil
+	end
+end
+
+task.spawn(function()
+	local modules = player:FindFirstChild("PlayerScripts")
+	local playerModule = modules and modules:WaitForChild("PlayerModule", 6)
+	if playerModule then
+		controls = require(playerModule):GetControls()
+		if shopMenu.mode and active then controls:Disable() end
+	end
+end)
 local menuPages = { Home = true, Solo = true, Multi = true, Code = true, Create = true }
 
 local function setCamera()
@@ -86,10 +113,14 @@ local function refresh(now)
 	local room = state.room
 	local carrying = player:GetAttribute("CarryingCart") == true
 	local stopped = player:GetAttribute("Stopped") == true or shopperScene.stop ~= nil
+	local slipped = player:GetAttribute("Slipped") == true
 	local playing = route == "Active" and room ~= nil
 	if active ~= playing then
+		local previouslyActive = active
 		active = playing
+		shopMenu.launcher.Visible = playing
 		if not active then
+			if previouslyActive then modal(nil) end
 			filmStart = now
 			shopperScene:reset(Workspace.CurrentCamera)
 			cartEffects:reset()
@@ -101,10 +132,13 @@ local function refresh(now)
 		end
 		setCamera()
 	end
-	ProximityPromptService.Enabled = playing and not carrying and not stopped
+	ProximityPromptService.Enabled = playing and not carrying and not stopped and not slipped and not shopMenu.mode
 	if room and playing then
 		local seconds = math.max(0, math.ceil(room.deadline - now))
 		view:showShift(room, seconds, player:GetAttribute("ReturnedCarts") or 0, carrying, input)
+		if slipped then
+			view.tipTitle.Text, view.tipText.Text = "You slipped!", "Wait to get back up."
+		end
 	elseif room and view.countdown then
 		view.countdown.Text = tostring(math.max(1, math.ceil(room.deadline - now)))
 	end
@@ -199,13 +233,101 @@ function actions.send(action, arg, extra)
 		elseif action == "Level" and state.room and route == "Level" then
 			actions.go(state.room.phase)
 		end
+		if shopMenu.mode == "Leave" then shopMenu.notice.Text = message end
 		setStatus()
 	end)
 end
 
+local function shopList()
+	if shopLoading or shopMenu.mode ~= "Shop" then return end
+	shopLoading = true
+	task.spawn(function()
+		local ok, response = pcall(request.InvokeServer, request, "Shop")
+		shopLoading = false
+		if shopMenu.mode ~= "Shop" then return end
+		if ok and response.items then
+			shopMenu:catalog(response.items)
+		else
+			shopMenu.notice.Text = "Could not load the shop. Try again."
+		end
+	end)
+end
+
+function actions.shop()
+	shopReturn = if active then "Pause" else nil
+	modal("Shop")
+	shopList()
+end
+
+function shopActions.toggle()
+	if not active then return end
+	if shopMenu.mode then modal(nil) else modal("Pause") end
+end
+
+function shopActions.back()
+	if shopMenu.mode == "Shop" then
+		modal(shopReturn)
+	elseif shopMenu.mode == "Leave" then
+		modal("Pause")
+	else
+		modal(nil)
+	end
+end
+
+function shopActions.main()
+	modal(nil)
+end
+
+function shopActions.extra(mode)
+	if mode == "Leave" then
+		shopMenu.notice.Text = "Leaving…"
+		actions.send("Leave", true)
+	else
+		actions.shop()
+	end
+end
+
+function shopActions.fee()
+	local room = state.room
+	return Pay.format(if room then Config.Levels[room.level].leaveCents else 0)
+end
+
+function shopActions.buy(key)
+	if busy then return end
+	busy = true
+	shopMenu.notice.Text = "Opening purchase…"
+	task.spawn(function()
+		local ok, response = pcall(request.InvokeServer, request, "Buy", key)
+		busy = false
+		shopMenu.notice.Text = if ok and response then response.error or "" else "Could not open the purchase."
+	end)
+end
+
+MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, _, purchased)
+	if userId == player.UserId and purchased then task.delay(2, shopList) end
+end)
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(who, _, purchased)
+	if who == player and purchased then task.delay(1, shopList) end
+end)
+ContextActionService:BindActionAtPriority("WWMSMenu", function(_, actionState)
+	if active and actionState == Enum.UserInputState.Begin and not GuiService.MenuIsOpen and not UserInputService:GetFocusedTextBox() then
+		shopActions.toggle()
+		return Enum.ContextActionResult.Sink
+	end
+	return Enum.ContextActionResult.Pass
+end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.P, Enum.KeyCode.ButtonL3)
+UserInputService.InputBegan:Connect(function(event)
+	if active and event.KeyCode == Enum.KeyCode.Escape then menuOpenedWithEscape = true end
+end)
+GuiService.MenuClosed:Connect(function()
+	if menuOpenedWithEscape and active and not shopMenu.mode then modal("Pause") end
+	menuOpenedWithEscape = false
+end)
+
 changed.OnClientEvent:Connect(accept)
 effectEvent.OnClientEvent:Connect(function(kind, payload)
 	if not active then return end
+	if kind == "Stopped" and payload.worker == player and shopMenu.mode then modal(nil) end
 	if kind == "Grab" or kind == "Returned" then
 		cartEffects:receive(kind, payload)
 	else
@@ -213,19 +335,22 @@ effectEvent.OnClientEvent:Connect(function(kind, payload)
 	end
 end)
 ContextActionService:BindActionAtPriority("WWMSHelp", function(_, actionState)
-	if active and actionState == Enum.UserInputState.Begin and shopperScene:input() then
+	if active and not shopMenu.mode and not player:GetAttribute("Slipped") and actionState == Enum.UserInputState.Begin and shopperScene:input() then
 		return Enum.ContextActionResult.Sink
 	end
 	return Enum.ContextActionResult.Pass
 end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Q, Enum.KeyCode.ButtonY)
 
-for _, attribute in { "CarryingCart", "Stopped", "ReturnedCarts" } do
+for _, attribute in { "CarryingCart", "Stopped", "Slipped", "ReturnedCarts" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
 		refresh(Workspace:GetServerTimeNow())
 	end)
 end
 local function updateWallet()
-	view:setWallet(player:GetAttribute("WalbucksCents") or 0, player:GetAttribute("WalletReady"), player:GetAttribute("WalletSaving"))
+	local cents = player:GetAttribute("WalbucksCents") or 0
+	local ready = player:GetAttribute("WalletReady")
+	view:setWallet(cents, ready, player:GetAttribute("WalletSaving"))
+	shopMenu:setBalance(if ready then Pay.format(cents) .. " Walbucks" else "Walbucks …")
 	setStatus()
 end
 for _, attribute in { "WalbucksCents", "WalletReady", "WalletSaving" } do
@@ -254,7 +379,8 @@ task.spawn(function()
 end)
 
 local SHOT_SECONDS = 7.5
-RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 1, function()
+RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 1, function(dt)
+	shopMenu:step(dt)
 	local now = Workspace:GetServerTimeNow()
 	if now >= lastRefresh then
 		lastRefresh = now + .10
@@ -263,7 +389,7 @@ RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 
 	end
 	local camera = Workspace.CurrentCamera
 	if active then
-		view.tip.Visible = not shopperScene:step(now, input)
+		view.tip.Visible = not shopMenu.mode and not shopperScene:step(now, input)
 		if camera and not shopperScene:camera(now, camera) and camera.CameraType == Enum.CameraType.Scriptable then setCamera() end
 		return
 	end

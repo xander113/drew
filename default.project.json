@@ -19,9 +19,13 @@
       "$properties": { "StreamingEnabled": false },
       "WWMS": { "$path": "world/WWMS.rbxm" }
     },
+    "HttpService": { "$className": "HttpService", "$properties": { "HttpEnabled": true } },
     "ReplicatedStorage": { "CartCatcher": { "$path": "src/shared" } },
     "ServerScriptService": { "CartCatcher": { "$path": "src/server" } },
-    "ServerStorage": { "ShopperRig": { "$path": "world/R6.rbxm" } },
+    "ServerStorage": {
+      "ShopperRig": { "$path": "world/R6.rbxm" },
+      "OfficialWardrobe": { "$path": "world/OfficialWardrobe.rbxm" }
+    },
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "$properties": { "GameSettingsAvatar": "R6" },

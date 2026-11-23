@@ -198,17 +198,17 @@ return function(kit)
 			end
 			sign(prop, "DEALS", nil, v(w - 1.24, .72, .13), v(x, 1.22, z - d / 2 - .065), enum.NormalId.Front, gold)
 			sign(prop, "DEALS", nil, v(w - 1.24, .72, .13), v(x, 1.22, z + d / 2 + .065), enum.NormalId.Back, gold)
-		else
-			local water = part(prop, "Spill", v(.025, d - .55, w - .52), cf.new(x, .038, z) * cf.Angles(0, 0, math.pi / 2), rgb(129, 212, 247))
-			water.Shape, water.Transparency = enum.PartType.Cylinder, .24
-			box(prop, "Spill Barrier", v(w, 1.2, .48), v(x, .79, z), gold, true)
-			for sign = -1, 1, 2 do
-				box(prop, "Barrier Foot", v(.53, .33, d), v(x + sign * (w / 2 - .31), .165, z), charcoal, true)
-				box(prop, "Reflector", v(.82, .19, .06), v(x + sign * (w / 2 - .71), 1.17, z - .26), white)
-			end
-			sign(prop, "WET FLOOR", nil, v(w - .95, .64, .10), v(x, .8, z - .293), enum.NormalId.Front)
-			sign(prop, "WET FLOOR", nil, v(w - .95, .64, .10), v(x, .8, z + .293), enum.NormalId.Back)
 		end
+	end
+
+	local spillFolder = folder(kit.store, "Wet Spots")
+	for i, rect in kit.layout.WetSpots do
+		local spot = part(spillFolder, "Wet Spot " .. i, v(.025, rect.width, rect.depth),
+			cf.new(rect.x, .033, rect.z) * cf.Angles(0, 0, math.pi / 2), rgb(113, 167, 196))
+		spot.Shape, spot.Transparency = enum.PartType.Cylinder, .32
+		local sheen = part(spillFolder, "Wet Sheen " .. i, v(.018, rect.width * .51, rect.depth * .47),
+			cf.new(rect.x - .3, .049, rect.z + .19) * cf.Angles(0, 0, math.pi / 2), rgb(187, 221, 233))
+		sheen.Shape, sheen.Transparency = enum.PartType.Cylinder, .49
 	end
 
 	local details = folder(kit.store, "Shop Finishes")

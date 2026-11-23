@@ -1,6 +1,7 @@
 local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local AvatarPreview = require(script.Parent.AvatarPreview)
 
 local ShopperScene = {}
 ShopperScene.__index = ShopperScene
@@ -77,7 +78,7 @@ function ShopperScene.new(parent, player, remote, timing, helpRange)
 	self.viewport.LightDirection = Vector3.new(-1, -.6, -1)
 	self.faceCamera = object("Camera", self.viewport)
 	self.faceCamera.FieldOfView = 24
-	self.faceCamera.CFrame = CFrame.lookAt(Vector3.new(-1.7, .45, -4.75), Vector3.new(0, .1, 0))
+	self.faceCamera.CFrame = CFrame.lookAt(Vector3.new(-1.5, 1.9, -5.15), Vector3.new(0, 1.52, 0))
 	self.viewport.CurrentCamera = self.faceCamera
 
 	local help = box(gui, 0, 0, 366, 92, BLUE, 21)
@@ -111,20 +112,7 @@ end
 
 function ShopperScene:portraitOf(shopper)
 	if self.face then self.face:Destroy() end
-	self.face = nil
-	local head = shopper and shopper:FindFirstChild("Head")
-	if not head then return end
-	local copy = head:Clone()
-	for _, part in copy:GetDescendants() do
-		if part:IsA("BasePart") then
-			part.CFrame = head.CFrame:ToObjectSpace(part.CFrame)
-			part.Anchored = true
-		elseif part:IsA("JointInstance") or part:IsA("WeldConstraint") or part:IsA("BillboardGui") then
-			part:Destroy()
-		end
-	end
-	copy.CFrame, copy.Anchored, copy.Parent = CFrame.new(), true, self.viewport
-	self.face = copy
+	self.face = AvatarPreview.clone(shopper, self.viewport)
 end
 
 function ShopperScene:mark(data)

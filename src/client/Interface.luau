@@ -72,22 +72,6 @@ local function tween(object, length, values, style)
 	return animation
 end
 
-local function cartDrawing(parent)
-	local cart = box(parent, "Cart Drawing", 352, 39, 93, 89, GOLD, 26)
-	cart.Rotation = -10
-	local basket = box(cart, "Basket", 28, 28, 45, 27, nil, 6)
-	outline(basket, INK, 4)
-	box(cart, "Grip", 15, 22, 18, 5, INK, 3)
-	local handle = box(cart, "Handle", 25, 24, 5, 40, INK, 3)
-	handle.Rotation = -13
-	box(cart, "Axle", 30, 62, 43, 5, INK, 3)
-	box(cart, "Wheel", 33, 69, 10, 10, INK, 6)
-	box(cart, "Wheel", 59, 69, 10, 10, INK, 6)
-	box(cart, "Slat", 41, 32, 3, 18, INK, 2)
-	box(cart, "Slat", 56, 32, 3, 18, INK, 2)
-	return cart
-end
-
 local function action(view, parent, caption, x, y, width, height, tint, callback, options)
 	options = options or {}
 	local base = box(parent, caption .. " Button", x, y, width, height + 5)
@@ -207,9 +191,9 @@ function Interface:resize()
 	if size.X < 70 or size.Y < 135 then return end
 	local portrait = size.X / size.Y < .94
 	local multiplier = math.min(1.14, (size.X - 26) / 468, (size.Y - 76) / 488)
-	local x = if portrait then math.floor((size.X - 468 * multiplier) / 2) else math.clamp(size.X * .065, 16, math.max(16, size.X - 468 * multiplier - 14))
+	local x = math.floor((size.X - 468 * multiplier) / 2)
 	self.ticketScale.Scale = multiplier
-	self.ticket.Position = offset(x, math.max(63, math.floor((size.Y - 488 * multiplier) * .58)))
+	self.ticket.Position = offset(x, math.max(63, math.floor((size.Y - 488 * multiplier) * .52)))
 	self.headerScale.Scale = multiplier
 	self.header.Position = offset(x, 9)
 	self.hudScale.Scale = math.min(1, (size.X - 24) / 376, size.Y / 385)
@@ -315,17 +299,14 @@ function Interface:showPage(route, model, actions)
 	if route == "Home" then
 		label(page, "Title", "Cart", 23, 37, 331, 69, 65, INK, DISPLAY)
 		label(page, "Title", "Catcher!", 23, 95, 331, 72, 65, BLUE, DISPLAY)
-		local cart = cartDrawing(page)
-		if not GuiService.ReducedMotionEnabled then
-			cart.Rotation = -19
-			tween(cart, .42, { Rotation = -10 }, Enum.EasingStyle.Back)
-		end
+		local mark = box(page, "WWMS stamp", 351, 53, 92, 85, GOLD, 19)
+		mark.Rotation = -8
+		label(mark, "WWMS", "WWMS", 1, 0, 90, 85, 23, INK, DISPLAY, CENTER)
 		label(page, "Shop name", "Willy Walter’s Mega Shop", 27, 177, 414, 28, 19, INK, BOLD)
 		label(page, "How to play", "Bring carts back before time runs out.", 27, 205, 414, 27, 17)
 		action(self, page, "Solo mode", 23, 261, 421, 66, BLUE, function() actions.go("Solo") end, { detail = "Play on your own" })
 		action(self, page, "Multi", 23, 344, 421, 65, MINT, function() actions.go("Multi") end, { detail = "Play with others" })
-		local news = box(page, "Shop news", 23, 435, 421, 37, GOLD, 13)
-		label(news, "News", "Shop coming soon", 0, 0, 421, 37, 18, INK, DISPLAY, CENTER)
+		action(self, page, "Shop", 23, 430, 421, 39, GOLD, actions.shop, { size = 20, radius = 12 })
 	elseif route == "Solo" then
 		back(self, page, function() actions.go("Home") end)
 		title(page, "Solo mode", "Pick a level.")

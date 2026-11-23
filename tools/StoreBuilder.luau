@@ -1,6 +1,6 @@
 local addDetails = require("./StoreDetails")
 
-local function build(roblox, layout, makeR6)
+local function build(roblox, layout, makeR6, closet, outfit)
 	local Instance, Vector3, CFrame = roblox.Instance, roblox.Vector3, roblox.CFrame
 	local Color3, UDim2, Enum = roblox.Color3, roblox.UDim2, roblox.Enum
 	local rgb, v = Color3.fromRGB, Vector3.new
@@ -248,26 +248,25 @@ local function build(roblox, layout, makeR6)
 	mascot.Parent = mascotStage
 	local shoulder = mascot.Torso["Right Shoulder"]
 	shoulder.C0 = shoulder.C0 * CFrame.Angles(.1, 0, 2.0)
+	for _, id in { outfit.shirt, outfit.pants } do closet[tostring(id)]:Clone().Parent = mascot end
+	for _, id in { outfit.hair, outfit.hat } do
+		local accessory = closet[tostring(id)]:Clone()
+		local handle = accessory.Handle
+		local mount = handle:FindFirstChildWhichIsA("Attachment")
+		local position = mount and mascot.Head:FindFirstChild(mount.Name)
+		if position then
+			handle.CFrame = mascot.Head.CFrame * position.CFrame * mount.CFrame:Inverse()
+		else
+			handle.CFrame = mascot.Head.CFrame * CFrame.new(0, .5, 0) * accessory.AttachmentPoint:Inverse()
+		end
+		handle.Anchored, handle.CanCollide, handle.CanTouch, handle.CanQuery, handle.Massless = false, false, false, false, true
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1, weld.Parent = mascot.Head, handle, handle
+		accessory.Parent = mascot
+	end
+
 	local plaque = part(mascotStage, "Mascot Plaque", v(8, 1.35, .32), base * CFrame.new(0, -1.9, -4.1), navy)
 	text(plaque, Enum.NormalId.Front, "WILLY WALTER", nil, yellow)
-	local function wear(name, size, parent, at, color)
-		local trim = part(mascotStage, name, size, parent.CFrame * CFrame.new(at), color, false)
-		trim.Anchored = false
-		trim.Massless = true
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0, weld.Part1, weld.Parent = parent, trim, trim
-	end
-	local silver = rgb(224, 231, 237)
-	wear("Silver Hair", v(1.38, .32, 1.13), mascot.Head, v(0, .62, .05), silver)
-	wear("Silver Hair", v(1.35, .76, .25), mascot.Head, v(0, .25, .56), silver)
-	wear("Glasses Bridge", v(.88, .085, .10), mascot.Head, v(0, .12, -.66), navy)
-	for _, x in { -.29, .29 } do
-		wear("Round Glasses", v(.43, .27, .10), mascot.Head, v(x, .12, -.68), navy)
-		wear("Glasses Lens", v(.31, .17, .07), mascot.Head, v(x, .12, -.742), sky)
-	end
-	wear("Moustache", v(.57, .16, .10), mascot.Head, v(0, -.17, -.64), silver)
-	wear("WWMS Badge", v(.45, .25, .06), mascot.Torso, v(-.48, .37, -.52), yellow)
-
 	local spawn = folder(lot, "Crew Spawn", "SpawnLocation")
 	spawn.Size, spawn.CFrame = v(12, .5, 10), CFrame.new(0, .20, 107)
 	spawn.Anchored, spawn.Neutral, spawn.Duration = true, true, 0

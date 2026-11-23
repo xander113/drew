@@ -10,6 +10,7 @@ local Config = require(shared.Config)
 local Directory = require(script.Parent.LobbyDirectory)
 local Shift = require(script.Parent.Shift)
 local Wallet = require(script.Parent.Wallet)
+local Shop = require(script.Parent.Shop)
 
 local store = Workspace:WaitForChild("WWMS")
 local crew = store.Markers.Crew
@@ -17,6 +18,8 @@ local studio = RunService:IsStudio()
 local reserved = not studio and game.PrivateServerId ~= "" and game.PrivateServerOwnerId == 0
 local directory = Directory.new(studio)
 local wallet = Wallet.new()
+local shop = Shop.new(wallet)
+local closing = false
 local players, rooms, arenaSlots = {}, {}, {}
 local reservedRoom
 local request = Instance.new("RemoteFunction")
@@ -168,7 +171,15 @@ end
 local function leaveRoom(entry)
 	local room = entry.room
 	if not room then return end
-	if room.shift then room.shift:remove(entry.player) end
+	if room.shift then
+		local shift = room.shift
+		if not shift:isRunning(Workspace:GetServerTimeNow()) then
+			shift:saveResult(entry.player, wallet)
+		elseif not closing then
+			wallet:penalty(entry.player, shift.id, shift.difficulty.leaveCents)
+		end
+		shift:remove(entry.player)
+	end
 	if room.pay then room.pay[entry.player] = nil end
 	table.remove(room.members, table.find(room.members, entry.player))
 	entry.room = nil
@@ -288,14 +299,24 @@ end
 local function handle(entry, action, arg, extra)
 	local room = entry.room
 	if entry.loading or entry.travel then return { error = "Please wait." } end
+	if action == "Shop" then return { items = shop:list(entry.player) } end
+	if action == "Buy" then return { error = shop:buy(entry.player, arg) } end
 	if action == "Leave" then
-		if reserved then
-			wallet:waitForSave(entry.player.UserId, 3)
-			return travel(entry, nil)
+		-- The native disconnect path is checked by leaveRoom as well.
+		if room and room.shift and room.shift:isRunning(Workspace:GetServerTimeNow()) and arg ~= true then
+			return { error = "Confirm the leave fee first." }
+		end
+		-- Keep a worker in the crew for the brief win celebration and payout.
+		if room and room.shift and not room.shift:isRunning(Workspace:GetServerTimeNow()) then
+			return { error = "Your shift is ending. Try again in a moment." }
 		end
 		leaveRoom(entry)
 		Shift.place(entry.player, crew, false)
 		send(entry)
+		if reserved then
+			if not wallet:waitForSave(entry.player.UserId, 5) then return { error = "Saving your wallet. Try again." } end
+			return travel(entry, nil)
+		end
 		return {}
 	end
 	if room then
@@ -419,4 +440,7 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
-game:BindToClose(function() wallet:close() end)
+game:BindToClose(function()
+	closing = true
+	wallet:close()
+end)
