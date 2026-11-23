@@ -159,7 +159,7 @@ local function build(roblox, layout, makeR6)
 		end
 		for row, z in layout.ShelfZ do
 			local shelf = folder(department, "Gondola " .. row, "Model")
-			local case = box(shelf, "Shelf Collision", v(5.6, 6.8, 30), v(x, 3.4, z), navy, true)
+			local case = box(shelf, "Shelf Collision", v(layout.ShelfWidth, 6.8, layout.ShelfDepth), v(x, 3.4, z), navy, true)
 			case.Transparency = 1
 			case.CastShadow = false
 			box(shelf, "Spine", v(.25, 6.64, 29.8), v(x, 3.35, z), steel)

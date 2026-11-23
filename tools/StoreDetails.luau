@@ -155,4 +155,77 @@ return function(kit)
 	for x = -10, 10, 2 do
 		box(kit.bay, "Return Mat Rib", v(.08, .035, 10), v(bx + x, .065, bz + .5), rgb(48, 128, 236))
 	end
+
+	local obstacles = folder(kit.store, "Aisle Obstacles")
+	local stockColors = { rgb(221, 174, 119), light, rgb(176, 224, 169), rgb(237, 145, 129) }
+	for i, rect in kit.layout.MiniObstacles do
+		local x, z, w, d = rect.x, rect.z, rect.width, rect.depth
+		local prop = folder(obstacles, rect.kind .. " " .. i, "Model")
+		if rect.kind == "Pallet" then
+			box(prop, "Wood Pallet", v(w, .42, d), v(x, .21, z), oak, true)
+			for side = -1, 1, 2 do
+				box(prop, "Fork Slot", v(w - .45, .1, .06), v(x, .17, z + side * d / 2), charcoal)
+			end
+			box(prop, "Shipping Load", v(w - .38, 1.37, d - .32), v(x, 1.1, z), stockColors[i % #stockColors + 1], true)
+			for _, side in { -1, 1 } do
+				local xx = x + side * (w / 4)
+				box(prop, "Top Box", v(w / 2 - .37, .83, d - .77), v(xx, 2.21 + side * .065, z), stockColors[(i + side + 2) % #stockColors + 1])
+				box(prop, "Tape", v(.12, .035, d - .72), v(xx + .1, 2.64 + side * .065, z), gold)
+				box(prop, "Ship Label", v(.6, .35, .05), v(xx, 1.3, z - d / 2 + .14), white)
+			end
+		elseif rect.kind == "Restock" then
+			box(prop, "Rack Base", v(w, .64, d), v(x, .46, z), charcoal, true)
+			box(prop, "Lower Tub", v(w - .25, 1.08, d - .24), v(x, 1.13, z), blue, true)
+			box(prop, "Top Rail", v(w, .18, d), v(x, 2.37, z), steel)
+			for sign = -1, 1, 2 do
+				for row = -1, 1, 2 do
+					box(prop, "Rack Post", v(.19, 2.03, .19), v(x + sign * (w / 2 - .14), 1.44, z + row * (d / 2 - .14)), gold)
+					local wheel = box(prop, "Rack Wheel", v(.38, .47, .47), v(x + sign * (w / 2 - .24), .26, z + row * (d / 2 - .31)), charcoal)
+					wheel.Shape = enum.PartType.Cylinder
+				end
+				box(prop, "Restock Tub", v(w / 2 - .24, .56, d - .37), v(x + sign * w / 4, 2.68, z), stockColors[(i + 1) % #stockColors + 1])
+			end
+			sign(prop, "RESTOCK", nil, v(w - .82, .58, .1), v(x, 1.29, z - d / 2 + .06), enum.NormalId.Front, gold)
+		elseif rect.kind == "Sale" then
+			box(prop, "Sale Bin", v(w, 2.1, d), v(x, 1.05, z), royal, true)
+			box(prop, "Bin Rim", v(w, .24, d), v(x, 2.09, z), gold)
+			for column = -1, 1 do
+				for row = -1, 1, 2 do
+					local tone = stockColors[(i + column + row + 4) % #stockColors + 1]
+					local packet = part(prop, "Sale Pack", v(1.35, .63, 1.32), cf.new(x + column * 1.55, 2.5, z + row * .96) * cf.Angles(0, column * .19, 0), tone)
+					box(prop, "Pack Mark", v(.63, .25, .055), packet.CFrame.Position - v(0, 0, .64), white)
+				end
+			end
+			sign(prop, "DEALS", nil, v(w - 1.24, .72, .13), v(x, 1.22, z - d / 2 - .065), enum.NormalId.Front, gold)
+			sign(prop, "DEALS", nil, v(w - 1.24, .72, .13), v(x, 1.22, z + d / 2 + .065), enum.NormalId.Back, gold)
+		else
+			local water = part(prop, "Spill", v(.025, d - .55, w - .52), cf.new(x, .038, z) * cf.Angles(0, 0, math.pi / 2), rgb(129, 212, 247))
+			water.Shape, water.Transparency = enum.PartType.Cylinder, .24
+			box(prop, "Spill Barrier", v(w, 1.2, .48), v(x, .79, z), gold, true)
+			for sign = -1, 1, 2 do
+				box(prop, "Barrier Foot", v(.53, .33, d), v(x + sign * (w / 2 - .31), .165, z), charcoal, true)
+				box(prop, "Reflector", v(.82, .19, .06), v(x + sign * (w / 2 - .71), 1.17, z - .26), white)
+			end
+			sign(prop, "WET FLOOR", nil, v(w - .95, .64, .10), v(x, .8, z - .293), enum.NormalId.Front)
+			sign(prop, "WET FLOOR", nil, v(w - .95, .64, .10), v(x, .8, z + .293), enum.NormalId.Back)
+		end
+	end
+
+	local details = folder(kit.store, "Shop Finishes")
+	for _, zone in { {-75, -46, "PRODUCE", green}, {-30, -54, "PANTRY", blue}, {42, 33, "HOME", royal}, {63, 38, "CHECKOUT", blue} } do
+		local x, z, title, tint = table.unpack(zone)
+		box(details, "Aisle Decal", v(8.2, .022, 2.9), v(x, .041, z), tint)
+		local marker = box(details, "Floor Sign", v(7.9, .028, 2.63), v(x, .059, z), tint)
+		text(marker, enum.NormalId.Top, title, nil, white)
+	end
+	for _, x in { -72, -38, 32, 70 } do
+		box(details, "Window Banner", v(8.8, 5.4, .21), v(x, 8.8, 70.48), blue)
+		sign(details, if x < 0 then "SHOP WWMS" else "GOOD DEALS", nil, v(8.6, 3.2, .09), v(x, 8.85, 70.31), enum.NormalId.Front, gold)
+		box(details, "Banner Cord", v(.08, 5.64, .13), v(x - 4.36, 8.81, 70.31), gold)
+	end
+	for _, x in { -47, -24, -1, 22, 45 } do
+		box(details, "High Beam Accent", v(.22, .44, 32), v(x, 18.35, -36), royal)
+		box(details, "High Beam Accent", v(.22, .44, 32), v(x, 18.35, 12), royal)
+	end
+
 end

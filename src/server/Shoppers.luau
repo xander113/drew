@@ -112,13 +112,13 @@ function Shoppers:resume(shopper, now)
 	shopper.route, shopper.routeIndex = {}, 1
 end
 
-function Shoppers.new(parent, layout, random, count, speed, now, origin)
-	local self = setmetatable({ list = {}, random = random, routes = AisleRoutes.new(layout), speed = speed, origin = origin }, Shoppers)
-	local nodes = self.routes.nodes
-	local offset = random:NextInteger(1, #nodes)
+function Shoppers.new(parent, layout, random, count, speed, now, origin, range)
+	local self = setmetatable({ list = {}, random = random, routes = AisleRoutes.new(layout), speed = speed, origin = origin, range = range }, Shoppers)
+	local starts = table.clone(self.routes.patrol)
 	for index = 1, count do
-		local position = nodes[(offset + index * 5) % #nodes + 1]
-		if index > #nodes then position += Vector3.new(2.4, 0, 2.4) end
+		local chosen = random:NextInteger(index, #starts)
+		starts[index], starts[chosen] = starts[chosen], starts[index]
+		local position = starts[index]
 		local model, joints = shopperModel(parent, index, position + origin)
 		table.insert(self.list, {
 			model = model, joints = joints, position = position, route = {}, routeIndex = 1,
@@ -133,7 +133,7 @@ function Shoppers:step(dt, now, workers, catch)
 	for _, shopper in self.list do
 		if shopper.speaking then continue end
 		if now >= shopper.planAt then
-			local nearest, distance = nil, 34
+			local nearest, distance = nil, self.range
 			if now >= shopper.restUntil then
 				for _, worker in workers do
 					local delta = worker.position - shopper.position
@@ -149,13 +149,14 @@ function Shoppers:step(dt, now, workers, catch)
 					nearest.eligible = false
 					continue
 				end
+				nearest = nil
 			end
 			local destination
 			if nearest then
 				destination = nearest.position
 			else
 				if not shopper.patrol or (shopper.patrol - shopper.position).Magnitude < 2 then
-					local nodes = self.routes.nodes
+					local nodes = self.routes.patrol
 					shopper.patrol = nodes[self.random:NextInteger(1, #nodes)]
 				end
 				destination = shopper.patrol

@@ -1,4 +1,5 @@
 local TweenService = game:GetService("TweenService")
+local CartSpawns = require(script.Parent.CartSpawns)
 
 local Carts = {}
 Carts.__index = Carts
@@ -20,6 +21,7 @@ local function build(parent, frame)
 		part.Color = color
 		part.Material = Enum.Material.SmoothPlastic
 		part.Shape = shape or Enum.PartType.Block
+		part.Anchored = true
 		part.CanCollide = false
 		part.CanTouch = false
 		part.CanQuery = false
@@ -46,14 +48,6 @@ local function build(parent, frame)
 		piece("Side Rail", Vector3.new(.18, .21, 3), Vector3.new(sign * 1.28, 2.43, -.18), BLUE)
 	end
 
-	for _, part in model:GetChildren() do
-		if part ~= root then
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0, weld.Part1 = root, part
-			weld.Parent = part
-		end
-	end
-
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Grab cart"
 	prompt.ObjectText = "Shopping cart"
@@ -66,7 +60,7 @@ local function build(parent, frame)
 	beacon.Name = "CartMarker"
 	beacon.Size = UDim2.fromOffset(18, 18)
 	beacon.StudsOffsetWorldSpace = Vector3.new(0, 3.05, 0)
-	beacon.MaxDistance = 68
+	beacon.MaxDistance = 54
 	beacon.AlwaysOnTop = false
 	beacon.Parent = root
 	local diamond = Instance.new("Frame")
@@ -79,49 +73,9 @@ local function build(parent, frame)
 	return model, prompt
 end
 
-local function shuffle(random, items)
-	for index = #items, 2, -1 do
-		local other = random:NextInteger(1, index)
-		items[index], items[other] = items[other], items[index]
-	end
-end
-
-function Carts.new(parent, layout, random, onPickup, count, goal, origin)
+function Carts.new(parent, layout, random, onPickup, count, origin)
 	local self = setmetatable({ items = {} }, Carts)
-	local front = {}
-	for _, position in {
-		Vector3.new(-51, 0, 43), Vector3.new(-45, 0, 42), Vector3.new(-38, 0, 43),
-		Vector3.new(-31, 0, 39), Vector3.new(-26, 0, 43), Vector3.new(-18, 0, 46),
-		Vector3.new(-42, 0, 31), Vector3.new(-21, 0, 34), Vector3.new(-56, 0, 36),
-		Vector3.new(-49, 0, 32), Vector3.new(-28, 0, 33), Vector3.new(-14, 0, 38),
-	} do
-		table.insert(front, position)
-	end
-	local frontAisles, middle, far = {}, {}, {}
-	for lane, x in layout.LaneX do
-		for _, z in layout.CartZ do
-			local side = if lane == 1 or lane % 2 == 0 then 3.1 else -3.1
-			local position = Vector3.new(x + side, 0, z)
-			local pool = if z < -17 then far elseif x < 3 and z >= 19 then frontAisles else middle
-			table.insert(pool, position)
-		end
-	end
-	shuffle(random, front)
-	shuffle(random, frontAisles)
-	shuffle(random, middle)
-	shuffle(random, far)
-	local nearCount = math.min(#front, math.ceil(goal * .65))
-	local positions = {}
-	for index = 1, nearCount do table.insert(positions, front[index]) end
-	for index = 1, math.min(#frontAisles, math.ceil(goal * .45)) do table.insert(positions, frontAisles[index]) end
-	for _, position in middle do table.insert(positions, position) end
-	for index = nearCount + 1, #front do table.insert(positions, front[index]) end
-	for index = math.ceil(goal * .45) + 1, #frontAisles do table.insert(positions, frontAisles[index]) end
-	for _, position in far do table.insert(positions, position) end
-	-- Reserve some carts for the back aisles on every shift.
-	local backCount = math.min(#far, math.max(2, math.floor(count * .22)))
-	for index = 1, count do
-		local position = if index > count - backCount then far[index - count + backCount] else positions[index]
+	for _, position in CartSpawns.pick(layout, random, count) do
 		local frame = CFrame.new(position + origin) * CFrame.Angles(0, math.rad(random:NextInteger(-35, 35)), 0)
 		local model, prompt = build(parent, frame)
 		local item = { model = model, parked = model:GetPivot(), prompt = prompt }
@@ -131,6 +85,27 @@ function Carts.new(parent, layout, random, onPickup, count, goal, origin)
 		end)
 	end
 	return self
+end
+
+local function attachBasket(item)
+	local root = item.model.PrimaryPart
+	local welds = {}
+	for _, piece in item.model:GetChildren() do
+		if piece == root then continue end
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1, weld.Parent = root, piece, piece
+		piece.Anchored = false
+		table.insert(welds, weld)
+	end
+	item.welds = welds
+end
+
+local function parkBasket(item)
+	for _, weld in item.welds do
+		weld.Part1.Anchored = true
+		weld:Destroy()
+	end
+	item.welds = nil
 end
 
 function Carts:claim(item, player, characterRoot, groundOffset, now)
@@ -145,6 +120,7 @@ function Carts:claim(item, player, characterRoot, groundOffset, now)
 	joint.Part0, joint.Part1 = characterRoot, root
 	joint.C0 = CFrame.new(0, .68 - groundOffset, -3.3)
 	model:PivotTo(characterRoot.CFrame * joint.C0)
+	attachBasket(item)
 	joint.Parent = root
 	root.Anchored = false
 	model:AddTag("WWMSPushedCart")
@@ -161,6 +137,7 @@ function Carts:release(item, dock)
 	root.Anchored = true
 	model:PivotTo(from)
 	if not dock then
+		parkBasket(item)
 		model:PivotTo(item.parked)
 		item.prompt.Enabled, root.CartMarker.Enabled = true, true
 		return

@@ -6,15 +6,15 @@ Work a shift at Willy Walter’s Mega Shop. Grab carts, dodge shoppers, and push
 
 Open `Cart-Catcher.rbxl` in Roblox Studio and press **Play**. Choose **Solo mode** to play on your own. Choose **Multi** to see public lobbies, enter a seven-character private code, or make a lobby. The host picks the level and starts the shift. Lobbies fit 1–25 players.
 
-Approach a cart and use **Grab cart**. Press **E** on a keyboard, **X** on a gamepad, or tap the prompt. Push the cart into the blue bay to return it.
+Approach a cart and use **Grab cart**. Press **E** on a keyboard, **X** on a gamepad, or tap the prompt. Carts are spread across the front, middle, and back of the store. Steer around pallets, restock racks, sale bins, and wet floors, then push the cart into the blue bay.
 
-If a shopper stops you, your character stays put until the chat ends. Teammates can see a red **Need help!** marker. Get close and press **Q**, press **Y** on a gamepad, or tap **Help**. Hit the green part of the bar to end the chat early.
+If a shopper stops you, your character stays put until the chat ends. Teammates can see a red **Need help!** marker. Get close and press **Q**, press **Y** on a gamepad, or tap **Help**. Hit the green part of the bar to end the chat early. Shoppers stop you once in a while on Easy and more often on harder levels.
 
-| Level | Time | Solo cart goal | 25-player cart goal | Rescue taps | Pay |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Easy | 2:05 | 5 | 25 | 1 | 1× |
-| Mediocre | 1:50 | 6 | 34 | 2 | 1.25× |
-| IRL | 1:35 | 7 | 45 | 3 | 1.5× |
+| Level | Time | Solo cart goal | 25-player cart goal | Carts in store | Rescue taps | Pay |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Easy | 2:05 | 5 | 25 | 30–70 | 1 | 1× |
+| Mediocre | 1:50 | 6 | 34 | 32–94 | 2 | 1.25× |
+| IRL | 1:35 | 7 | 45 | 34–124 | 3 | 1.5× |
 
 ## Walbucks
 

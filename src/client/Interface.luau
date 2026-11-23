@@ -258,7 +258,7 @@ local function levelChoices(view, parent, draft, crew, startY, selectLevel)
 		label(row, "Level", level.name, 47, 0, 155, 50, 22, INK, DISPLAY)
 		label(row, "Time", clock(level.seconds), 225, 0, 66, 50, 17, INK, BOLD, CENTER)
 		local goal = view.config.shift(index, crew).goal
-		label(row, "Goal", goal .. " carts", 313, 0, 91, 50, 17, INK, BOLD, CENTER)
+		label(row, "Goal", "Return " .. goal, 304, 0, 108, 50, 17, INK, BOLD, CENTER)
 		row.Activated:Connect(function()
 			selectLevel(index)
 			paint(index)

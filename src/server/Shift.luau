@@ -77,10 +77,10 @@ function Shift.new(room, arena, origin, now, effects)
 	}, Shift)
 	self.carts = Carts.new(objects, Layout, self.random, function(player, item)
 		self:pickup(player, item)
-	end, settings.carts, settings.goal, origin)
-	self.shoppers = Shoppers.new(objects, Layout, self.random, settings.shoppers, settings.speed, now, origin)
+	end, settings.carts, origin)
+	self.shoppers = Shoppers.new(objects, Layout, self.random, settings.shoppers, settings.speed, now, origin, self.difficulty.encounters.range)
 	for index, player in room.members do
-		local entry = { station = markers["Worker" .. index], delivered = 0, pickupAt = 0, safeUntil = 0, rescueAt = 0 }
+		local entry = { station = markers["Worker" .. index], delivered = 0, pickupAt = 0, safeUntil = now + self.difficulty.encounters.grace, checkAt = 0, rescueAt = 0 }
 		self.entries[player] = entry
 		player:SetAttribute("CarryingCart", false)
 		player:SetAttribute("ReturnedCarts", 0)
@@ -148,12 +148,15 @@ end
 
 function Shift:question(player, shopper, lines, now)
 	local entry = self.entries[player]
-	if not entry or entry.stop or entry.rescue or now < entry.safeUntil or self.deadline - now < 2 then return false end
+	if not entry or entry.stop or entry.rescue or now < entry.safeUntil or now < entry.checkAt or self.deadline - now < 2 then return false end
 	local root, humanoid = alive(player)
 	if not root or root.Anchored or root.Position.Y - self.origin.Y > 4.6 then return false end
 	local direction = shopper.model.PrimaryPart.Position - root.Position
 	if Workspace:Raycast(root.Position, direction, self.ray) then return false end
 
+	local encounters = self.difficulty.encounters
+	entry.checkAt = now + encounters.retry
+	if self.random:NextNumber(0, 1) >= encounters.chance then return false end
 	self.shoppers:stop(shopper, root.Position)
 	local at = root.Position
 	local target = shopper.model.PrimaryPart.Position
@@ -184,7 +187,7 @@ end
 function Shift:endStop(player, entry, outcome, now)
 	local stop = entry.stop
 	if not stop then return end
-	entry.stop, entry.safeUntil = nil, now + Config.QuestionCooldown
+	entry.stop, entry.safeUntil = nil, now + self.difficulty.encounters.cooldown
 	if stop.root.Parent and stop.root.Parent == player.Character then
 		stop.humanoid.AutoRotate = true
 		updateSpeed(entry, stop.humanoid)
@@ -292,7 +295,7 @@ function Shift:step(dt, now)
 		if position.Y > 0 and position.Y < 9 and math.abs(position.X) < 85 and position.Z >= -69 then
 			table.insert(workers, {
 				player = player, position = Vector3.new(position.X, 0, position.Z),
-				eligible = not entry.stop and not entry.rescue and now >= entry.safeUntil,
+				eligible = not entry.stop and not entry.rescue and now >= entry.safeUntil and now >= entry.checkAt,
 			})
 		end
 	end
