@@ -8,7 +8,11 @@ Open `Cart-Catcher.rbxl` in Roblox Studio and press **Play**. Choose **Solo mode
 
 Approach a cart and use **Grab cart**. Press **E** on a keyboard, **X** on a gamepad, or tap the prompt. Carts are spread across the front, middle, and back of the store. The edge of each parked cart starts at least 24 studs away from the blue bay on every level. Steer around pallets, restock racks, sale bins, and wet spots, then push the cart into the blue bay. If you step on a wet spot, you drop your cart and take a moment to get back up.
 
-Shoppers browse different departments on their way to checkout. If one stops you, your character stays put until the chat ends. Teammates can see a red **Need help!** marker. Get close and press **Q**, press **Y** on a gamepad, or tap **Help**. Hit the green part of the bar to end the chat early. Shoppers stop you once in a while on Easy and more often on harder levels. The shoppers and Willy Walter wear official Roblox clothes and accessories. The bottom help banner appears during play after you finish your first shift.
+Shoppers browse different departments and give each other room. One shopper can chase you at a time. After a chase, you get at least five seconds before another can start. Shoppers can stop you while you walk or push a cart. They give you space while you dock a cart, talk to a shopper, or help a teammate. Shoppers stop you once in a while on Easy and more often on harder levels. Shoppers in each shift use different official Roblox faces and headwear.
+
+Hold **Ctrl**, hold the **right trigger**, or hold **Sprint** on a phone or tablet for a small speed boost. Sprinting past a nearby shopper raises the chance they stop you.
+
+When a teammate gets stopped, look for the red **Need help!** marker. Get close and press **Q**, press **Y** on a gamepad, or tap the help prompt. Hit the green part of the bar. Use **Q**, the gamepad button shown, or the gold button on touch screens. More taps are needed on harder levels. The general help banner appears after your first full shift.
 
 | Level | Time | Solo cart goal | 25-player cart goal | Carts in store | Slip time | Leave fee | Rescue taps | Pay |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

@@ -1,12 +1,15 @@
 local Timing = {}
+local buttons = { "A", "X", "Y" }
 
 function Timing.build(level, now, random)
 	local startAt = now + .32
-	local cues = {}
+	local cues, keys, touch = {}, {}, {}
 	for tap = 1, level.rescueTaps do
 		cues[tap] = random:NextNumber(.35, .65)
+		keys[tap] = buttons[random:NextInteger(1, #buttons)]
+		touch[tap] = random:NextInteger(1, 3)
 	end
-	return { start = startAt, period = level.rescuePeriod, width = level.rescueWidth, cues = cues }
+	return { start = startAt, period = level.rescuePeriod, width = level.rescueWidth, cues = cues, keys = keys, touch = touch }
 end
 
 function Timing.slot(pattern, step, now)

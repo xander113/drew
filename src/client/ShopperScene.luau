@@ -89,13 +89,22 @@ function ShopperScene.new(parent, player, remote, timing, helpRange)
 	self.helpScale = object("UIScale", help)
 	local button = box(help, 5, 5, 356, 81, PAPER, 17, "TextButton")
 	button.Text, button.AutoButtonColor, button.Selectable = "", true, false
+	self.helpButton = button
 	self.helpHeader = text(button, 13, 5, 329, 31, "Help your teammate", 23, INK, DISPLAY, true)
 	self.helpText = text(button, 12, 36, 331, 32, "", 16, INK, BODY, true)
 	local track = box(button, 17, 48, 322, 15, rgb(197, 216, 247), 8)
 	self.track = track
 	self.zone = box(track, 0, 0, 60, 15, rgb(119, 228, 99), 8)
 	self.needle = box(track, 0, -3, 5, 21, BLUE, 4)
-	button.Activated:Connect(function() self:input() end)
+	button.Activated:Connect(function()
+		if not self.attempt or not self.touch then self:input() end
+	end)
+	local tap = box(button, 0, 79, 100, 47, GOLD, 13, "TextButton")
+	tap.Text, tap.Font, tap.TextSize, tap.TextColor3 = "Tap", DISPLAY, 21, INK
+	tap.Visible, tap.Selectable, self.tapButton = false, false, tap
+	tap.Activated:Connect(function()
+		if self.attempt and self.touch then self:input() end
+	end)
 	self:resize()
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() self:resize() end)
 	return self
@@ -196,8 +205,12 @@ function ShopperScene:receive(kind, data)
 	end
 end
 
-function ShopperScene:input()
-	if self.stop then return false end
+function ShopperScene:input(key)
+	if self.stop or not self.help.Visible then return false end
+	if key and key ~= Enum.KeyCode.Q then
+		local expected = if self.attempt then self.attempt.pattern.keys[self.attempt.step] else "Y"
+		if key.Name ~= "Button" .. expected then return self.attempt ~= nil end
+	end
 	local now = Workspace:GetServerTimeNow()
 	if now < (self.inputAt or 0) then return false end
 	if self.attempt then
@@ -226,6 +239,7 @@ function ShopperScene:nearest(now)
 			local delta = root.Position - ownRoot.Position
 			local ray = RaycastParams.new()
 			ray.FilterType, ray.FilterDescendantsInstances = Enum.RaycastFilterType.Exclude, { self.player.Character, worker.Character }
+			ray.CollisionGroup = "WWMSWorker"
 			ray.RespectCanCollide = true
 			if delta.Magnitude < .01 or not Workspace:Raycast(ownRoot.Position, delta, ray) then best, gap = worker, delta.Magnitude end
 		end
@@ -233,7 +247,7 @@ function ShopperScene:nearest(now)
 	return best
 end
 
-function ShopperScene:step(now, inputType)
+function ShopperScene:step(now, inputType, canHelp)
 	if self.stop then
 		local scene = self.stop
 		local section = (scene.finish - scene.start) / #scene.lines
@@ -250,16 +264,33 @@ function ShopperScene:step(now, inputType)
 		return true
 	end
 
+	if canHelp == false then
+		self.help.Visible, self.target = false, nil
+		return false
+	end
 	if now >= (self.nextSearch or 0) then
-		self.target, self.nextSearch = self:nearest(now), now + .12
+		local target = self:nearest(now)
+		if target and not self.target and not self.attempt and now >= (self.nextBlip or 0) then
+			self.nextBlip = now + 1.2
+			SoundEffects.play("HelpReady")
+			pop(self.help)
+		end
+		self.target, self.nextSearch = target, now + .12
 	end
 	local attempt = self.attempt
 	local note = if now < (self.noteUntil or 0) then self.noteText else nil
 	self.help.Visible = attempt ~= nil or self.target ~= nil or note ~= nil
 	self.track.Visible, self.helpText.Visible = attempt ~= nil, attempt == nil
-	local key = if inputType == Enum.UserInputType.Touch then "Tap here" elseif string.match(inputType.Name, "^Gamepad") then "Press Y" else "Press Q"
+	local touch = inputType == Enum.UserInputType.Touch
+	local touchAttempt = touch and attempt ~= nil
+	self.tapButton.Visible = touchAttempt
+	self.help.Size, self.helpButton.Size = offset(366, if touchAttempt then 146 else 92), offset(356, if touchAttempt then 136 else 81)
+	local gamepad = ScreenLayout.isGamepad(inputType)
+	local key = if touch then "Tap" elseif gamepad then "Press Y" else "Press Q"
 	if attempt then
 		local pattern = attempt.pattern
+		if gamepad then key = "Press " .. pattern.keys[attempt.step] end
+		if touchAttempt then self.tapButton.Position = offset(16 + (pattern.touch[attempt.step] - 1) * 112, 79) end
 		self.helpHeader.Text = string.format("%s in green   %d/%d", key, attempt.step, #pattern.cues)
 		self.zone.Size = UDim2.new(pattern.width, 0, 1, 0)
 		self.zone.Position = UDim2.fromScale(pattern.cues[attempt.step] - pattern.width / 2, 0)

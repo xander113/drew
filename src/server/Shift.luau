@@ -57,9 +57,32 @@ function Shift.place(player, station, active)
 	root.Anchored = not active
 end
 
-local function updateSpeed(entry, humanoid)
-	local speed = if entry.stop or entry.slip then 0 elseif entry.cart then Config.PushSpeed else Config.WalkSpeed
+local function updateSpeed(player, entry, humanoid, now)
+	local locked = entry.stop or entry.slip
+	local sprinting = entry.sprintHeld == true and not locked and not entry.rescue and now >= (entry.dockUntil or 0)
+	if entry.sprinting ~= sprinting then
+		entry.sprinting = sprinting
+		player:SetAttribute("Sprinting", sprinting)
+	end
+	if not humanoid then return end
+	local base = if entry.cart then Config.PushSpeed else Config.WalkSpeed
+	local speed = if locked then 0 elseif sprinting then base + Config.SprintBoost else base
 	if humanoid.WalkSpeed ~= speed then humanoid.WalkSpeed = speed end
+end
+
+local function inBay(bay, position)
+	local relative = bay.CFrame:PointToObjectSpace(position)
+	local half = bay.Size / 2
+	return math.abs(relative.X) <= half.X and math.abs(relative.Y) <= half.Y and math.abs(relative.Z) <= half.Z
+end
+
+local function docking(self, entry, root)
+	return entry.cart and (inBay(self.bay, root.Position) or inBay(self.bay, entry.cart.model.PrimaryPart.Position))
+end
+
+local function canQuestion(entry, now)
+	return not entry.stop and not entry.slip and not entry.rescue and now >= entry.safeUntil
+		and now >= entry.checkAt and now >= (entry.dockUntil or 0)
 end
 
 function Shift.new(room, arena, origin, now, effects)
@@ -87,6 +110,7 @@ function Shift.new(room, arena, origin, now, effects)
 		player:SetAttribute("ReturnedCarts", 0)
 		player:SetAttribute("Stopped", false)
 		player:SetAttribute("Slipped", false)
+		player:SetAttribute("Sprinting", false)
 		Shift.place(player, entry.station, true)
 	end
 	self.deadline = Workspace:GetServerTimeNow() + settings.seconds
@@ -96,6 +120,18 @@ end
 function Shift:spawn(player)
 	local entry = self.entries[player]
 	if entry then Shift.place(player, entry.station, true) end
+end
+
+function Shift:sprint(player, held, now)
+	local entry = self.entries[player]
+	if not entry or type(held) ~= "boolean" or entry.sprintHeld == held then return end
+	local root, humanoid = alive(player)
+	if held and (not self:isRunning(now) or not root or root.Anchored) then return end
+	entry.sprintHeld = held
+	if not held or now >= (entry.sprintAt or 0) then
+		entry.sprintAt = now + .1
+		updateSpeed(player, entry, humanoid, now)
+	end
 end
 
 function Shift:release(player, entry, dock)
@@ -109,17 +145,22 @@ end
 function Shift:reset(player)
 	local entry = self.entries[player]
 	if not entry then return end
+	local now = Workspace:GetServerTimeNow()
+	entry.sprintHeld = false
+	self.shoppers:cancelChase(player, now)
 	self:release(player, entry)
-	self:endStop(player, entry, "Gone", Workspace:GetServerTimeNow())
-	self:endRescue(player, entry, "Lost")
-	self:endSlip(player, entry, false)
+	self:endStop(player, entry, "Gone", now)
+	self:endRescue(player, entry, "Lost", now)
+	self:endSlip(player, entry, false, now)
+	local _, humanoid = alive(player)
+	updateSpeed(player, entry, humanoid, now)
 	entry.wet = nil
-	entry.safeUntil = Workspace:GetServerTimeNow() + 3
+	entry.safeUntil = now + 3
 end
 
 function Shift:remove(player)
 	self:reset(player)
-	self.entries[player] = nil
+	self.entries[player], self.shoppers.chaseCooldowns[player] = nil, nil
 end
 
 function Shift:pickup(player, item)
@@ -142,7 +183,7 @@ function Shift:pickup(player, item)
 	self.carts:claim(item, player, root, offset, now)
 	entry.cart = item
 	player:SetAttribute("CarryingCart", true)
-	updateSpeed(entry, humanoid)
+	updateSpeed(player, entry, humanoid, now)
 	self.effects:FireClient(player, "Grab", { position = position })
 end
 
@@ -152,16 +193,22 @@ end
 
 function Shift:question(player, shopper, lines, now)
 	local entry = self.entries[player]
-	if not entry or entry.stop or entry.slip or entry.rescue or now < entry.safeUntil or now < entry.checkAt or self.deadline - now < 2 then return false end
+	if not entry or not canQuestion(entry, now) or self.wonAt or self.deadline - now < 2 then return false end
+	local chaser = self.shoppers.chasers[player]
+	if chaser and chaser ~= shopper then return false end
 	local root, humanoid = alive(player)
-	if not root or root.Anchored or root.Position.Y - self.origin.Y > 4.6 then return false end
+	if not root or root.Anchored or docking(self, entry, root) then return false end
 	local direction = shopper.model.PrimaryPart.Position - root.Position
-	if Workspace:Raycast(root.Position, direction, self.ray) then return false end
+	local gap = direction.Magnitude
+	if gap > 5.25 or (gap > .01 and Workspace:Raycast(root.Position, direction, self.ray)) then return false end
 
 	local encounters = self.difficulty.encounters
 	entry.checkAt = now + encounters.retry
-	if self.random:NextNumber(0, 1) >= encounters.chance then return false end
-	self.shoppers:stop(shopper, root.Position)
+	local velocity = root.AssemblyLinearVelocity
+	local moving = velocity.X * velocity.X + velocity.Z * velocity.Z >= 64
+	local chance = encounters.chance + (if entry.sprinting and moving then Config.SprintCatchBonus else 0)
+	if self.random:NextNumber(0, 1) >= chance then return false, true end
+	self.shoppers:stop(shopper, root.Position, now)
 	local at = root.Position
 	local target = shopper.model.PrimaryPart.Position
 	local flat = Vector3.new(target.X - at.X, 0, target.Z - at.Z)
@@ -172,7 +219,7 @@ function Shift:question(player, shopper, lines, now)
 	self.serial += 1
 	local untilTime = math.min(self.deadline, now + self.difficulty.stopSeconds)
 	entry.stop = { id = self.serial, shopper = shopper, started = now, untilTime = untilTime, root = root, humanoid = humanoid }
-	updateSpeed(entry, humanoid)
+	updateSpeed(player, entry, humanoid, now)
 	player:SetAttribute("Stopped", true)
 	self:broadcast("Stopped", {
 		id = entry.stop.id, worker = player, shopper = shopper.model,
@@ -181,10 +228,12 @@ function Shift:question(player, shopper, lines, now)
 	return true
 end
 
-function Shift:endRescue(player, entry, outcome)
+function Shift:endRescue(player, entry, outcome, now)
 	local attempt = entry.rescue
 	if not attempt then return end
 	entry.rescue = nil
+	local _, humanoid = alive(player)
+	updateSpeed(player, entry, humanoid, now)
 	self.effects:FireClient(player, "RescueEnd", { id = attempt.id, outcome = outcome })
 end
 
@@ -194,13 +243,13 @@ function Shift:endStop(player, entry, outcome, now)
 	entry.stop, entry.safeUntil = nil, now + self.difficulty.encounters.cooldown
 	if stop.root.Parent and stop.root.Parent == player.Character then
 		stop.humanoid.AutoRotate = true
-		updateSpeed(entry, stop.humanoid)
+		updateSpeed(player, entry, stop.humanoid, now)
 		stop.root.Anchored = false
 	end
 	player:SetAttribute("Stopped", false)
 	self.shoppers:resume(stop.shopper, now)
 	for helper, helperEntry in self.entries do
-		if helperEntry.rescue and helperEntry.rescue.stop == stop then self:endRescue(helper, helperEntry, "Lost") end
+		if helperEntry.rescue and helperEntry.rescue.stop == stop then self:endRescue(helper, helperEntry, "Lost", now) end
 	end
 	self:broadcast("Freed", { id = stop.id, worker = player, outcome = outcome })
 end
@@ -230,23 +279,26 @@ function Shift:rescue(player, action, target, now)
 		self.serial += 1
 		local attempt = { id = self.serial, step = 1, target = target, stop = stop, pattern = pattern }
 		entry.rescue = attempt
+		self.shoppers:cancelChase(player, now)
+		local _, humanoid = alive(player)
+		updateSpeed(player, entry, humanoid, now)
 		self.effects:FireClient(player, "RescueStart", { id = attempt.id, pattern = pattern })
 	elseif action == "Tap" then
 		local attempt = entry.rescue
 		if not attempt or target ~= attempt.id then return end
 		local victim = self.entries[attempt.target]
-		if not victim or victim.stop ~= attempt.stop or not self:near(player, attempt.target) then
-			self:endRescue(player, entry, "Lost")
+		if not victim or victim.stop ~= attempt.stop or now >= attempt.stop.untilTime or not self:near(player, attempt.target) then
+			self:endRescue(player, entry, "Lost", now)
 			return
 		end
 		if now < attempt.pattern.start then return end
 		if not Timing.hit(attempt.pattern, attempt.step, now, player:GetNetworkPing()) then
-			self:endRescue(player, entry, "Miss")
+			self:endRescue(player, entry, "Miss", now)
 			return
 		end
 		attempt.step += 1
 		if attempt.step > #attempt.pattern.cues then
-			self:endRescue(player, entry, "Hit")
+			self:endRescue(player, entry, "Hit", now)
 			self:endStop(attempt.target, victim, "Helped", now)
 		else
 			self.effects:FireClient(player, "RescueStep", { id = attempt.id, step = attempt.step })
@@ -281,18 +333,19 @@ function Shift:slip(player, entry, root, humanoid, now)
 	local fallen = CFrame.lookAt(stand - Vector3.new(0, 1.7, 0), stand + forward - Vector3.new(0, 1.7, 0))
 		* CFrame.Angles(math.rad(-78), 0, 0)
 	self:release(player, entry)
-	self:endRescue(player, entry, "Lost")
+	self:endRescue(player, entry, "Lost", now)
+	self.shoppers:cancelChase(player, now)
 	root.Anchored, humanoid.AutoRotate = true, false
 	root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
 	local recovery = self.difficulty.slipSeconds
 	local fall = TweenService:Create(root, TweenInfo.new(.29, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = fallen })
 	entry.slip = { root = root, humanoid = humanoid, recover = now + recovery, stand = upright, motion = fall }
-	updateSpeed(entry, humanoid)
+	updateSpeed(player, entry, humanoid, now)
 	player:SetAttribute("Slipped", true)
 	fall:Play()
 end
 
-function Shift:endSlip(player, entry, stand)
+function Shift:endSlip(player, entry, stand, now)
 	local slip = entry.slip
 	if not slip then return end
 	entry.slip = nil
@@ -300,7 +353,7 @@ function Shift:endSlip(player, entry, stand)
 	if slip.root.Parent and slip.root.Parent == player.Character then
 		if stand then slip.root.CFrame = slip.stand end
 		slip.humanoid.AutoRotate = true
-		updateSpeed(entry, slip.humanoid)
+		updateSpeed(player, entry, slip.humanoid, now)
 		slip.root.Anchored = false
 	end
 	player:SetAttribute("Slipped", false)
@@ -316,12 +369,6 @@ function Shift:checkWet(player, entry, root, humanoid, now)
 	end
 end
 
-local function inBay(bay, position)
-	local relative = bay.CFrame:PointToObjectSpace(position)
-	local half = bay.Size / 2
-	return math.abs(relative.X) <= half.X and math.abs(relative.Y) <= half.Y and math.abs(relative.Z) <= half.Z
-end
-
 function Shift:step(dt, now)
 	if self.wonAt then return if now >= self.wonAt then "Filled" else nil, false end
 	if now >= self.deadline then return "Time", false end
@@ -331,7 +378,7 @@ function Shift:step(dt, now)
 		if entry.stop and now >= entry.stop.untilTime then self:endStop(player, entry, "Done", now) end
 		local slip = entry.slip
 		if slip and now >= slip.recover then
-			self:endSlip(player, entry, true)
+			self:endSlip(player, entry, true, now)
 		elseif slip and not slip.rising and now >= slip.recover - .34 then
 			slip.rising = true
 			slip.motion:Cancel()
@@ -341,19 +388,20 @@ function Shift:step(dt, now)
 		local attempt = entry.rescue
 		if attempt then
 			if not self:near(player, attempt.target) then
-				self:endRescue(player, entry, "Lost")
+				self:endRescue(player, entry, "Lost", now)
 			elseif Timing.slot(attempt.pattern, attempt.step, now - .16) >= 1 then
-				self:endRescue(player, entry, "Miss")
+				self:endRescue(player, entry, "Miss", now)
 			end
 		end
 		local root, humanoid = alive(player)
 		if not root then continue end
 		if not entry.stop and not entry.slip then self:checkWet(player, entry, root, humanoid, now) end
-		local cart = entry.cart
-		if cart and not entry.stop and not entry.slip and (inBay(self.bay, root.Position) or inBay(self.bay, cart.model.PrimaryPart.Position)) then
+		if not entry.stop and not entry.slip and docking(self, entry, root) then
 			local dockX = math.clamp(root.Position.X, self.bay.Position.X - 10, self.bay.Position.X + 10)
 			local dock = Vector3.new(dockX, self.origin.Y + .68, self.bay.Position.Z + 2.5)
 			self:release(player, entry, dock)
+			entry.dockUntil = now + Config.DockProtection
+			self.shoppers:cancelChase(player, now)
 			entry.delivered += 1
 			player:SetAttribute("ReturnedCarts", entry.delivered)
 			self.banked += 1
@@ -362,16 +410,22 @@ function Shift:step(dt, now)
 			self:broadcast("Returned", { worker = player, position = dock, full = full })
 			if full then
 				self.wonAt = now + 1.05
-				for worker, workerEntry in self.entries do self:endStop(worker, workerEntry, "Gone", now) end
+				for worker, workerEntry in self.entries do
+					workerEntry.sprintHeld = false
+					self.shoppers:cancelChase(worker, now)
+					self:endStop(worker, workerEntry, "Gone", now)
+					local _, workerHumanoid = alive(worker)
+					updateSpeed(worker, workerEntry, workerHumanoid, now)
+				end
 				return nil, true
 			end
 		end
-		updateSpeed(entry, humanoid)
+		updateSpeed(player, entry, humanoid, now)
 		local position = root.Position - self.origin
-		if position.Y > 0 and position.Y < 9 and math.abs(position.X) < 85 and position.Z >= -69 then
+		if position.Y > 0 and position.Y < 9 then
 			table.insert(workers, {
 				player = player, position = Vector3.new(position.X, 0, position.Z),
-				eligible = not entry.stop and not entry.slip and not entry.rescue and now >= entry.safeUntil and now >= entry.checkAt,
+				eligible = not root.Anchored and self.deadline - now >= 2 and canQuestion(entry, now),
 			})
 		end
 	end
@@ -390,13 +444,16 @@ function Shift:saveResult(player, wallet)
 end
 
 function Shift:finish(crew, wallet)
+	local now = Workspace:GetServerTimeNow()
 	local results = {}
 	for player, entry in self.entries do
 		results[player] = self:saveResult(player, wallet)
+		entry.sprintHeld = false
+		player:SetAttribute("Sprinting", false)
 		player:SetAttribute("CarryingCart", false)
-		self:endStop(player, entry, "Gone", Workspace:GetServerTimeNow())
-		self:endRescue(player, entry, "Lost")
-		self:endSlip(player, entry, true)
+		self:endStop(player, entry, "Gone", now)
+		self:endRescue(player, entry, "Lost", now)
+		self:endSlip(player, entry, true, now)
 		Shift.place(player, crew, false)
 	end
 	self:destroy()

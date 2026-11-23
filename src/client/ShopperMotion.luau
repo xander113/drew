@@ -1,8 +1,10 @@
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local AvatarPreview = require(script.Parent.AvatarPreview)
+local Spacing = require(ReplicatedStorage:WaitForChild("CartCatcher").ShopperSpacing)
 
 local ShopperMotion = {}
 local TAG = "WWMSShopper"
@@ -15,7 +17,7 @@ function ShopperMotion.start()
 	local function show(model)
 		if not model:HasTag(TAG) or not model:IsDescendantOf(Workspace) or not model.PrimaryPart then return end
 		local actor = actors[model]
-		local display = AvatarPreview.clone(model, folder)
+		local display = AvatarPreview.clone(model, nil)
 		if not display then return end
 		display:PivotTo(if actor then actor.frame else model:GetPivot())
 		if actor then
@@ -23,8 +25,8 @@ function ShopperMotion.start()
 		else
 			actor = { frame = model:GetPivot(), stride = 0, pace = 0 }
 			actors[model] = actor
-			actor.appearance = model.ChildAdded:Connect(function(child)
-				if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants") then task.defer(show, model) end
+			actor.appearance = model.DescendantAdded:Connect(function(child)
+				if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants") or child:IsA("Decal") then task.defer(show, model) end
 			end)
 		end
 		actor.display, actor.limbs = display, {}
@@ -37,6 +39,10 @@ function ShopperMotion.start()
 		end
 		for _, piece in model:GetDescendants() do
 			if piece:IsA("BasePart") then piece.LocalTransparencyModifier = 1 end
+		end
+		local position = actor.frame.Position
+		if actor.position or Spacing.clear(position, position, actors, actor) then
+			actor.position, display.Parent = position, folder
 		end
 	end
 
@@ -66,10 +72,25 @@ function ShopperMotion.start()
 		for model, actor in actors do
 			if not model.PrimaryPart or not model.Parent then continue end
 			local target = model:GetPivot()
-			if (target.Position - camera.CFrame.Position).Magnitude > 175 then continue end
+			if not actor.position then
+				if not Spacing.clear(target.Position, target.Position, actors, actor) then continue end
+				actor.frame, actor.position, actor.display.Parent = target, target.Position, folder
+			end
+			if (target.Position - camera.CFrame.Position).Magnitude > 175 then
+				if target ~= actor.frame and Spacing.clear(target.Position, target.Position, actors, actor) then
+					actor.frame, actor.position = target, target.Position
+					actor.display:PivotTo(target)
+				end
+				continue
+			end
 			local move = target.Position - actor.frame.Position
 			local previous = actor.frame
-			actor.frame = if move.Magnitude > 16 then target else previous:Lerp(target, weight)
+			local nextFrame = if move.Magnitude > 16 then target else previous:Lerp(target, weight)
+			if nextFrame.Position == actor.position or Spacing.clear(actor.position, nextFrame.Position, actors, actor) then
+				actor.frame, actor.position = nextFrame, nextFrame.Position
+			else
+				actor.frame = CFrame.new(actor.position) * nextFrame.Rotation
+			end
 			local travel = (actor.frame.Position - previous.Position).Magnitude
 			local pace = math.clamp(travel / math.max(dt * 6, .001), 0, 1)
 			actor.pace += (pace - actor.pace) * weight

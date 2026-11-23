@@ -5,7 +5,7 @@ local roblox = require("@lune/roblox")
 local catalog = require("../src/server/OutfitCatalog")
 
 local groups = {
-	{ 11, catalog.Shirts }, { 12, catalog.Pants }, { 41, catalog.Hair }, { 8, catalog.Hats },
+	{ 11, catalog.Shirts }, { 12, catalog.Pants }, { 41, catalog.Hair }, { 8, catalog.Hats }, { 18, catalog.Faces },
 	{ 11, { catalog.Walter.shirt } }, { 12, { catalog.Walter.pants } },
 	{ 41, { catalog.Walter.hair } }, { 8, { catalog.Walter.hat } },
 }
@@ -43,7 +43,7 @@ local names = {}
 for name in encoded do table.insert(names, name) end
 table.sort(names)
 for _, name in names do
-	local expected = ({ [11] = "Shirt", [12] = "Pants", [41] = "Accessory", [8] = "Accessory" })[types[name]]
+	local expected = ({ [11] = "Shirt", [12] = "Pants", [41] = "Accessory", [8] = "Accessory", [18] = "Decal" })[types[name]]
 	local selected
 	local ok, children = pcall(roblox.deserializeModel, decode64(encoded[name]))
 	assert(ok, "Could not read Roblox asset " .. name .. ": " .. tostring(children))

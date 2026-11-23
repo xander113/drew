@@ -23,6 +23,12 @@ def fetch(argument):
     model = load(f"https://assetdelivery.roblox.com/v1/asset/?id={asset_id}")
     if model.lstrip().startswith(b"<roblox"):
         model = re.sub(rb'<string name="MaterialVariant"[^>]*>.*?</string>', b'', model, flags=re.DOTALL)
+    if expected == 18:
+        # Classic faces carry a texture ID in their Decal. Keep the reference on Roblox.
+        face = re.search(rb'<url>\s*(?:https?://[^<]*?[?&]id=|rbxassetid://)(\d+)\s*</url>', model)
+        if not face or b'class="Decal"' not in model:
+            raise ValueError(f"{asset_id} is missing its classic face decal")
+        model = model[:face.start()] + b"<url>rbxassetid://" + face[1] + b"</url>" + model[face.end():]
     return str(asset_id), base64.b64encode(model).decode("ascii")
 
 

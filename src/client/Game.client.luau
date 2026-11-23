@@ -26,6 +26,7 @@ local Music = require(script.Parent.Music)
 local Timing = require(shared:WaitForChild("RescueTiming"))
 local effectEvent = shared:WaitForChild("ShiftEffects")
 local rescueInput = shared:WaitForChild("RescueInput")
+local sprintInput = shared:WaitForChild("SprintInput")
 local cameras = Workspace:WaitForChild("WWMS"):WaitForChild("MenuCameras")
 local shots = {}
 for _, name in { "Facade", "Willy", "Aisles", "Coolers", "Produce", "Return" } do
@@ -71,7 +72,27 @@ local function updateLayout()
 end
 local controls
 local shopReturn, shopLoading, shopQueued
+local sprintKeys, sprintTouch, sprinting = {}, nil, false
+local function syncSprint()
+	local wanted = next(sprintKeys) ~= nil or sprintTouch ~= nil
+	if wanted == sprinting then return end
+	sprinting = wanted
+	sprintInput:FireServer(wanted)
+end
+
+local function cancelSprint()
+	table.clear(sprintKeys)
+	sprintTouch = nil
+	syncSprint()
+end
+
+local function canSprint()
+	return active and not shopMenu.mode and not GuiService.MenuIsOpen and not shopperScene.attempt
+		and not player:GetAttribute("Stopped") and not player:GetAttribute("Slipped")
+end
+
 local function modal(mode)
+	if mode then cancelSprint() end
 	shopMenu:show(mode)
 	if controls then
 		if mode and active then controls:Disable() else controls:Enable() end
@@ -140,6 +161,7 @@ local function refresh(now)
 		active = playing
 		shopMenu.launcher.Visible = playing
 		if not active then
+			cancelSprint()
 			if previouslyActive then modal(nil) end
 			filmStart = now
 			shopperScene:reset(Workspace.CurrentCamera)
@@ -421,6 +443,7 @@ effectEvent.OnClientEvent:Connect(function(kind, payload)
 	elseif kind == "Returned" then
 		if payload.full then SoundEffects.cheer() elseif payload.worker == player then SoundEffects.play("Return") end
 	elseif kind == "RescueStart" then
+		cancelSprint()
 		SoundEffects.play("Help")
 	elseif kind == "RescueStep" then
 		SoundEffects.play("Hit")
@@ -436,15 +459,49 @@ effectEvent.OnClientEvent:Connect(function(kind, payload)
 		shopperScene:receive(kind, payload)
 	end
 end)
-ContextActionService:BindActionAtPriority("WWMSHelp", function(_, actionState)
-	if active and not shopMenu.mode and not player:GetAttribute("Slipped") and actionState == Enum.UserInputState.Begin and shopperScene:input() then
+ContextActionService:BindActionAtPriority("WWMSHelp", function(_, actionState, actionInput)
+	if active and not shopMenu.mode and not GuiService.MenuIsOpen and not player:GetAttribute("Slipped")
+		and actionState == Enum.UserInputState.Begin and shopperScene:input(actionInput.KeyCode) then
 		return Enum.ContextActionResult.Sink
 	end
 	return Enum.ContextActionResult.Pass
-end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Q, Enum.KeyCode.ButtonY)
+end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Q, Enum.KeyCode.ButtonY, Enum.KeyCode.ButtonA, Enum.KeyCode.ButtonX)
+ContextActionService:BindActionAtPriority("WWMSSprint", function(_, actionState, actionInput)
+	if actionState == Enum.UserInputState.Cancel then
+		table.clear(sprintKeys)
+		syncSprint()
+		return Enum.ContextActionResult.Pass
+	end
+	local key = actionInput.KeyCode
+	if actionState == Enum.UserInputState.Begin and canSprint() and not UserInputService:GetFocusedTextBox() then
+		sprintKeys[key] = true
+		syncSprint()
+		return Enum.ContextActionResult.Sink
+	elseif actionState == Enum.UserInputState.End and sprintKeys[key] then
+		sprintKeys[key] = nil
+		syncSprint()
+		return Enum.ContextActionResult.Sink
+	end
+	return Enum.ContextActionResult.Pass
+end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.LeftControl, Enum.KeyCode.RightControl, Enum.KeyCode.ButtonR2)
+
+view.sprint.InputBegan:Connect(function(event)
+	if not sprintTouch and event.UserInputType == Enum.UserInputType.Touch and canSprint() then
+		sprintTouch = event
+		syncSprint()
+	end
+end)
+UserInputService.InputEnded:Connect(function(event)
+	if event ~= sprintTouch then return end
+	sprintTouch = nil
+	syncSprint()
+end)
+UserInputService.WindowFocusReleased:Connect(cancelSprint)
+GuiService.MenuOpened:Connect(cancelSprint)
 
 for _, attribute in { "CarryingCart", "Stopped", "Slipped", "ReturnedCarts" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
+		if (attribute == "Stopped" or attribute == "Slipped") and player:GetAttribute(attribute) then cancelSprint() end
 		if active and attribute == "Slipped" then
 			if player:GetAttribute("Slipped") then
 				SoundEffects.play("SlipTension")
@@ -487,6 +544,7 @@ GuiService:GetPropertyChangedSignal("SelectedObject"):Connect(function()
 end)
 Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(setCamera)
 player.CharacterAdded:Connect(function(character)
+	cancelSprint()
 	if character:WaitForChild("Humanoid", 10) then setCamera() end
 end)
 view.screen:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() view:resize() end)
@@ -514,7 +572,8 @@ RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 
 	end
 	local camera = Workspace.CurrentCamera
 	if active then
-		local encounterVisible = shopperScene:step(now, input)
+		local encounterVisible = shopperScene:step(now, input, not shopMenu.mode and not GuiService.MenuIsOpen and not player:GetAttribute("Slipped"))
+		view.sprint.Visible = input == Enum.UserInputType.Touch and canSprint() == true
 		view.tip.Visible = player:GetAttribute("HasFinishedShift") == true and not shopMenu.mode and not encounterVisible
 		shopMenu.launcher.Visible = not shopperScene.stop and not shopMenu.mode
 		if camera and not shopperScene:camera(now, camera) and camera.CameraType == Enum.CameraType.Scriptable then setCamera() end

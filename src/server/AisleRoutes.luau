@@ -4,6 +4,14 @@ AisleRoutes.__index = AisleRoutes
 local RADIUS = 1.75
 local cached = setmetatable({}, { __mode = "k" })
 
+function AisleRoutes.inAisles(point)
+	return math.abs(point.X) < 84.5 and point.Z >= -67 and point.Z <= 69
+end
+
+function AisleRoutes.inStore(point)
+	return math.abs(point.X) <= 86 and point.Z >= -70 and point.Z <= 70
+end
+
 local function crosses(start, finish, rect)
 	local first, last = 0, 1
 	local dx, dz = finish.X - start.X, finish.Z - start.Z
@@ -32,14 +40,16 @@ end
 function AisleRoutes.new(layout)
 	if cached[layout] then return cached[layout] end
 	local self = setmetatable({ blockers = {}, nodes = {}, patrol = {}, nextHop = {} }, AisleRoutes)
-	for _, rect in layout.Blockers do
+	local fixtures = table.clone(layout.Blockers)
+	for _, rect in layout.ShopperBlockers do table.insert(fixtures, rect) end
+	for _, rect in fixtures do
 		local halfX, halfZ = rect.width / 2 + RADIUS, rect.depth / 2 + RADIUS
 		table.insert(self.blockers, { minX = rect.x - halfX, maxX = rect.x + halfX, minZ = rect.z - halfZ, maxZ = rect.z + halfZ })
 	end
 
 	local function add(x, z, patrol)
-		if math.abs(x) >= 84.5 or z < -67 or z > 46 then return end
 		local point = Vector3.new(x, 0, z)
+		if not AisleRoutes.inAisles(point) then return end
 		if not self:clear(point, point) then return end
 		table.insert(self.nodes, point)
 		if patrol then table.insert(self.patrol, point) end
@@ -48,7 +58,11 @@ function AisleRoutes.new(layout)
 		for _, z in layout.CrossZ do add(x, z, true) end
 		for _, z in { -48, -29, 4, 22 } do add(x, z, true) end
 	end
-	for _, rect in layout.Blockers do
+	for x = -78, 78, 13 do
+		add(x, 45, false)
+		add(x, 66, false)
+	end
+	for _, rect in fixtures do
 		if rect.kind == "Shelf" then continue end
 		local x, z = rect.width / 2 + RADIUS + .35, rect.depth / 2 + RADIUS + .35
 		for signX = -1, 1, 2 do
@@ -91,10 +105,6 @@ function AisleRoutes.new(layout)
 	return self
 end
 
-local function inAisles(point)
-	return math.abs(point.X) < 84.5 and point.Z >= -67 and point.Z <= 46
-end
-
 local searchAngles = {}
 for i = 1, 8 do
 	local angle = i * math.pi / 4
@@ -102,12 +112,12 @@ for i = 1, 8 do
 end
 
 function AisleRoutes:approach(from, target)
-	if inAisles(target) and self:clear(target, target) then return target end
+	if AisleRoutes.inAisles(target) and self:clear(target, target) then return target end
 	for _, radius in { 2.1, 4.2 } do
 		local chosen, distance = nil, math.huge
 		for _, direction in searchAngles do
 			local option = target + direction * radius
-			if inAisles(option) and self:clear(option, option) then
+			if AisleRoutes.inAisles(option) and self:clear(option, option) then
 				local leg = (option - from).Magnitude
 				if leg < distance then chosen, distance = option, leg end
 			end

@@ -175,6 +175,13 @@ function Interface.new(parent, config, pay)
 	local hud = box(gui, "Shift", 0, 0, 0, 0)
 	hud.Size, hud.Visible = scale(1, 1), false
 	self.hud = hud
+	local sprint = item("TextButton", "Sprint", hud)
+	sprint.AnchorPoint, sprint.Size = Vector2.new(1, 1), offset(82, 52)
+	sprint.Text, sprint.TextColor3, sprint.Font, sprint.TextSize = "Sprint", WHITE, DISPLAY, 19
+	sprint.Visible, sprint.Selectable, sprint.AutoButtonColor = false, false, true
+	fill(sprint, BLUE, 15)
+	outline(sprint, WHITE, 2)
+	self.sprint = sprint
 	local top = box(hud, "Shift score", 0, 0, 376, 100, PAPER, 18)
 	top.AnchorPoint, top.Position = Vector2.new(.5, 0), UDim2.new(.5, 0, 0, 8)
 	self.hudScore = top
@@ -235,6 +242,7 @@ function Interface:resize()
 	self.hudScore.Position = UDim2.new(.5, 0, 0, if size.X < 620 then 51 else 8)
 	self.tipScale.Scale = self.hudScale.Scale
 	self.tip.Position = UDim2.new(.5, 0, 1, if self.touch and portrait then -105 else -18)
+	self.sprint.Position = UDim2.new(1, -22, 1, if portrait then -187 else -146)
 end
 
 function Interface:setWallet(amount, ready, saving)

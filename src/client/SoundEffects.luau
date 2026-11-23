@@ -30,6 +30,7 @@ local cues = {
 	Slip = { "splash", .26, 1.42, .43 },
 	Stand = { "stand", .24, 1.05, .30 },
 	Help = { "tick", .26, 1.03, .22 },
+	HelpReady = { "tick", .18, 1.63, .20 },
 	Hit = { "tick", .27, 1.53, .20 },
 	Miss = { "tap", .25, .70, .22 },
 }

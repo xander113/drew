@@ -85,4 +85,16 @@ for _, fixtures in { layout.Fixtures, layout.MiniObstacles } do
 end
 layout.Blockers = table.freeze(blockers)
 
+-- Front-of-store fixtures only need extra clearance for shopper routes.
+layout.ShopperBlockers = table.freeze({
+	obstacle("Checkout", 60, 54, 4.7, 9),
+	obstacle("Checkout", 68, 54, 4.7, 9),
+	obstacle("Checkout", 76, 54, 4.7, 9),
+	obstacle("Stage", 25, 54, 14, 9),
+	obstacle("Bay Rail", layout.BayX - 12.8, layout.BayZ, .45, 14.1),
+	obstacle("Bay Rail", layout.BayX + 12.8, layout.BayZ, .45, 14.1),
+	obstacle("Bay Rail", layout.BayX, 63.4, 26, .6),
+})
+
+
 return table.freeze(layout)

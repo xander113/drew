@@ -30,6 +30,8 @@ local effects = Instance.new("RemoteEvent")
 effects.Name = "ShiftEffects"
 local rescue = Instance.new("RemoteEvent")
 rescue.Name = "RescueInput"
+local sprint = Instance.new("RemoteEvent")
+sprint.Name = "SprintInput"
 
 local collisionGroup = "WWMSWorker"
 if not PhysicsService:IsCollisionGroupRegistered(collisionGroup) then PhysicsService:RegisterCollisionGroup(collisionGroup) end
@@ -427,7 +429,14 @@ rescue.OnServerEvent:Connect(function(player, action, target)
 	if shift then shift:rescue(player, action, target, Workspace:GetServerTimeNow()) end
 end)
 
+sprint.OnServerEvent:Connect(function(player, held)
+	local entry = players[player]
+	local shift = entry and entry.room and entry.room.shift
+	if shift then shift:sprint(player, held, Workspace:GetServerTimeNow()) end
+end)
+
 effects.Parent = shared
+sprint.Parent = shared
 rescue.Parent = shared
 changed.Parent = shared
 request.Parent = shared

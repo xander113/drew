@@ -1,11 +1,18 @@
 local AisleRoutes = require(script.Parent.AisleRoutes)
 local Wardrobe = require(script.Parent.Wardrobe)
+local shared = game:GetService("ReplicatedStorage"):WaitForChild("CartCatcher")
+local Config = require(shared.Config)
+local Spacing = require(shared.ShopperSpacing)
 
 local Shoppers = {}
 Shoppers.__index = Shoppers
 
+local PhysicsService = game:GetService("PhysicsService")
 local ServerStorage = game:GetService("ServerStorage")
 local rig = ServerStorage:WaitForChild("ShopperRig")
+local collisionGroup = "WWMSShopper"
+if not PhysicsService:IsCollisionGroupRegistered(collisionGroup) then PhysicsService:RegisterCollisionGroup(collisionGroup) end
+PhysicsService:CollisionGroupSetCollidable(collisionGroup, collisionGroup, false)
 
 local scenes = {
 	{ "Hey! Where’s the milk?", "Coolers at the back.", "Thanks. I walked right past it!" },
@@ -25,13 +32,12 @@ local skins = {
 	rgb(101, 61, 48), rgb(77, 48, 40),
 }
 
-local function shopperModel(parent, id, position, random)
+local function shopperModel(parent, id, position, random, look)
 	local model = rig:Clone()
 	model.Name = names[(id - 1) % #names + 1]
 	local skin = skins[random:NextInteger(1, #skins)]
 	for _, limb in model:GetChildren() do
 		if limb:IsA("BasePart") then
-			limb.CanCollide, limb.CanTouch, limb.CanQuery = false, false, false
 			limb.CastShadow = true
 			limb.Massless = limb ~= model.PrimaryPart
 			limb.Color = skin
@@ -42,9 +48,14 @@ local function shopperModel(parent, id, position, random)
 	model.Humanoid.EvaluateStateMachine = false
 
 	model:PivotTo(CFrame.new(position + Vector3.new(0, 3, 0)))
-	model.Parent = parent
-	Wardrobe.shopper(model, random)
+	Wardrobe.shopper(model, random, look, id)
+	for _, piece in model:GetDescendants() do
+		if piece:IsA("BasePart") then
+			piece.CanCollide, piece.CanTouch, piece.CanQuery, piece.CollisionGroup = false, false, false, collisionGroup
+		end
+	end
 	model:AddTag("WWMSShopper")
+	model.Parent = parent
 	return model
 end
 
@@ -54,17 +65,34 @@ local function pose(shopper, origin)
 	if shopper.model:GetPivot() ~= frame then shopper.model:PivotTo(frame) end
 end
 
-function Shoppers:stop(shopper, workerPosition)
+local function releaseChase(self, shopper, now)
+	local player = shopper.following
+	if not player then return end
+	self.chasers[player], self.chaseCooldowns[player] = nil, now + Config.ChaseCooldown
+	shopper.following, shopper.plannedDestination = nil, nil
+	shopper.route, shopper.routeIndex, shopper.planAt = {}, 1, now
+	shopper.restUntil = math.max(shopper.restUntil, now + 1.75)
+end
+
+function Shoppers:cancelChase(player, now)
+	local shopper = self.chasers[player]
+	if shopper then releaseChase(self, shopper, now) end
+end
+
+function Shoppers:stop(shopper, workerPosition, now)
+	releaseChase(self, shopper, now)
 	shopper.speaking = true
 	local flat = Vector3.new(workerPosition.X, 0, workerPosition.Z) - self.origin
 	local face = flat - shopper.position
-	if face.Magnitude > .01 then
-		if face.Magnitude < 2.7 then
-			local proposed = flat - face.Unit * 2.7
-			if self.routes:clear(shopper.position, proposed) then shopper.position = proposed end
+	local direction = if face.Magnitude > .01 then face.Unit else shopper.facing
+	if face.Magnitude < 2.7 then
+		local proposed = flat - direction * 2.7
+		if AisleRoutes.inAisles(proposed) and self.routes:clear(shopper.position, proposed)
+			and Spacing.clear(shopper.position, proposed, self.list, shopper) then
+			shopper.position = proposed
 		end
-		shopper.facing = face.Unit
 	end
+	shopper.facing = direction
 	pose(shopper, self.origin)
 end
 
@@ -134,14 +162,16 @@ function Shoppers.new(parent, layout, random, count, speed, now, origin, range)
 	local routes = AisleRoutes.new(layout)
 	local self = setmetatable({
 		list = {}, random = random, routes = routes, speed = speed, origin = origin, range = range,
-		trips = layout.ShoppingTrips, stops = compileStops(layout, routes),
+		trips = layout.ShoppingTrips, stops = compileStops(layout, routes), chasers = {}, chaseCooldowns = {},
 	}, Shoppers)
 	local starts = table.clone(routes.patrol)
+	local look = Wardrobe.looks(random, count)
 	for index = 1, count do
 		local chosen = random:NextInteger(index, #starts)
 		starts[index], starts[chosen] = starts[chosen], starts[index]
 		local position = starts[index]
-		local model = shopperModel(parent, index, position + origin, random)
+		assert(Spacing.clear(position, position, self.list), "Shopper spawn needs room between R6 rigs")
+		local model = shopperModel(parent, index, position + origin, random, look)
 		local trip = self.trips[random:NextInteger(1, #self.trips)]
 		table.insert(self.list, {
 			model = model, position = position, route = {}, routeIndex = 1, trip = trip, visitIndex = random:NextInteger(1, #trip - 1),
@@ -151,73 +181,141 @@ function Shoppers.new(parent, layout, random, count, speed, now, origin, range)
 	return self
 end
 
-function Shoppers:plan(shopper, now, workers, catch)
-	local nearest, distance, rank = nil, self.range, math.huge
-	if now >= shopper.restUntil then
-		for _, worker in workers do
-			local gap = (worker.position - shopper.position).Magnitude
-			local cost = gap + (if shopper.following == worker.player then 0 else 3)
-			if worker.eligible and worker.position.Z <= 46 and gap < self.range and cost < rank then
-				nearest, distance, rank = worker, gap, cost
+function Shoppers:plan(shopper, now, workers, byPlayer, catch)
+	local worker = byPlayer[shopper.following]
+	if not worker and now >= shopper.restUntil then
+		local nearest = self.range
+		for _, candidate in workers do
+			local gap = (candidate.position - shopper.position).Magnitude
+			local player = candidate.player
+			if candidate.eligible and not self.chasers[player] and now >= (self.chaseCooldowns[player] or 0)
+				and gap < nearest and AisleRoutes.inStore(candidate.position) then
+				worker, nearest = candidate, gap
 			end
 		end
-	end
-	if nearest and distance <= 4.35 and self.routes:clear(shopper.position, nearest.position) then
-		local lines = scenes[self.random:NextInteger(1, #scenes)]
-		if catch(nearest.player, shopper, lines, now) then
-			nearest.eligible = false
-			return
+		if worker then
+			shopper.following, shopper.chaseUntil = worker.player, now + Config.ChaseSeconds
+			self.chasers[worker.player] = shopper
 		end
-		nearest = nil
 	end
 
-	local previous = shopper.following
-	local destination = if nearest then self.routes:approach(shopper.position, nearest.position) else nil
+	local destination
+	if worker then
+		local distance = (worker.position - shopper.position).Magnitude
+		-- Walls near a worker can block a straight path. Approach from the open aisle.
+		if distance <= 4.35 then
+			local lines = scenes[self.random:NextInteger(1, #scenes)]
+			local stopped, missed = catch(worker.player, shopper, lines, now)
+			if stopped then
+				worker.eligible = false
+				releaseChase(self, shopper, now)
+				return
+			elseif missed then
+				worker.eligible, worker = false, nil
+				releaseChase(self, shopper, now)
+			end
+		end
+		if worker then
+			destination = self.routes:approach(shopper.position, worker.position)
+			if not destination then releaseChase(self, shopper, now) end
+		end
+	end
 	if destination then shopper.browseUntil = nil end
-	shopper.following = if destination then nearest.player else nil
 	destination = destination or shoppingTarget(self, shopper, now)
 	if not destination then
 		shopper.route, shopper.routeIndex, shopper.plannedDestination = {}, 1, nil
 	elseif self.routes:clear(shopper.position, destination) then
 		shopper.route, shopper.routeIndex, shopper.plannedDestination = { destination }, 1, destination
-	elseif previous ~= shopper.following or shopper.routeIndex > #shopper.route
-		or not shopper.plannedDestination or (destination - shopper.plannedDestination).Magnitude > 4.8 then
+	elseif shopper.routeIndex > #shopper.route or not shopper.plannedDestination
+		or (destination - shopper.plannedDestination).Magnitude > 3.6 then
 		shopper.route = self.routes:trace(shopper.position, destination)
 		shopper.routeIndex, shopper.plannedDestination = 1, destination
 	end
-	shopper.planAt = now + .32 + self.random:NextNumber(0, .12)
+	shopper.planAt = now + .28 + self.random:NextNumber(0, .15)
 end
 
-local function move(shopper, remaining)
-	while remaining > .001 do
-		local target = shopper.route[shopper.routeIndex]
-		if not target then return end
-		local delta = target - shopper.position
-		local distance = delta.Magnitude
-		if distance < .02 then
-			shopper.routeIndex += 1
-		else
-			shopper.facing = delta.Unit
-			if distance >= remaining then
-				shopper.position += shopper.facing * remaining
-				return
-			end
-			shopper.position = target
-			remaining -= distance
-			shopper.routeIndex += 1
+local turns = { .7, -.7, 1.22, -1.22, 1.57, -1.57 }
+local function sidestep(self, shopper, direction, distance)
+	local start = shopper.position
+	for _, angle in turns do
+		local cos, sin = math.cos(angle), math.sin(angle)
+		local offset = Vector3.new(direction.X * cos - direction.Z * sin, 0, direction.X * sin + direction.Z * cos)
+		local point = start + offset * distance
+		if AisleRoutes.inAisles(point) and Spacing.clear(start, point, self.list, shopper)
+			and self.routes:clear(start, point) then
+			shopper.position, shopper.facing = point, offset
+			return true
 		end
 	end
+	return false
+end
+
+local function move(self, shopper, remaining)
+	local moved = false
+	while remaining > .002 do
+		local target = shopper.route[shopper.routeIndex]
+		if not target then break end
+		local start = shopper.position
+		local delta = target - start
+		local distance = delta.Magnitude
+		if distance < .002 then
+			shopper.routeIndex += 1
+			continue
+		end
+		local direction = delta / distance
+		local stride = math.min(distance, remaining)
+		local nextPoint = start + direction * stride
+		local open = Spacing.clear(start, nextPoint, self.list, shopper)
+		if not open or not Spacing.clear(start, start + direction * math.max(stride, 1.05), self.list, shopper, Spacing.Comfort) then
+			if sidestep(self, shopper, direction, stride) then
+				-- Recheck the path after moving off the original aisle segment.
+				shopper.plannedDestination = nil
+				return true
+			end
+			if not open then break end
+		end
+		if not self.routes:clear(start, nextPoint) then
+			shopper.plannedDestination = nil
+			break
+		end
+		shopper.position, shopper.facing = nextPoint, direction
+		moved = true
+		remaining -= stride
+		if stride >= distance then shopper.routeIndex += 1 end
+	end
+	return moved
 end
 
 function Shoppers:step(dt, now, workers, catch)
-	for _, shopper in self.list do
+	local byPlayer = {}
+	for _, worker in workers do byPlayer[worker.player] = worker end
+	for player, shopper in self.chasers do
+		local worker = byPlayer[player]
+		if not worker or not worker.eligible or now >= shopper.chaseUntil or not AisleRoutes.inStore(worker.position)
+			or (worker.position - shopper.position).Magnitude > self.range + 7 then
+			releaseChase(self, shopper, now)
+		end
+	end
+	local count = #self.list
+	local first = self.first or 0
+	for index = 0, count - 1 do
+		local shopper = self.list[(first + index) % count + 1]
 		if shopper.speaking then continue end
-		if now >= shopper.planAt then self:plan(shopper, now, workers, catch) end
+		if now >= shopper.planAt then self:plan(shopper, now, workers, byPlayer, catch) end
 		if shopper.speaking then continue end
-		local pace = if shopper.following then 1 else .63
-		move(shopper, self.speed * dt * pace)
+		local speed = if shopper.following then self.speed + Config.ChaseSpeedBoost else self.speed * .63
+		if move(self, shopper, speed * dt) or shopper.routeIndex > #shopper.route then
+			shopper.waitingSince = nil
+		else
+			shopper.waitingSince = shopper.waitingSince or now
+			if not shopper.following and now - shopper.waitingSince > 2 then
+				visitNext(self, shopper)
+				shopper.waitingSince, shopper.plannedDestination, shopper.planAt = nil, nil, now
+			end
+		end
 		pose(shopper, self.origin)
 	end
+	self.first = if count > 0 then (first + 1) % count else 0
 end
 
 return Shoppers
