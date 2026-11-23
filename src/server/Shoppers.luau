@@ -73,13 +73,13 @@ local function shopperModel(parent, id, position)
 	return model, limbs
 end
 
-function Shoppers.new(parent, layout, random, count, speed, now)
-	local self = setmetatable({ list = {}, random = random, routes = AisleRoutes.new(layout), speed = speed }, Shoppers)
+function Shoppers.new(parent, layout, random, count, speed, now, origin)
+	local self = setmetatable({ list = {}, random = random, routes = AisleRoutes.new(layout), speed = speed, origin = origin }, Shoppers)
 	local nodes = self.routes.nodes
 	local offset = random:NextInteger(1, #nodes)
 	for index = 1, count do
 		local position = nodes[(offset + index * 5) % #nodes + 1]
-		local model, limbs = shopperModel(parent, index, position)
+		local model, limbs = shopperModel(parent, index, position + origin)
 		table.insert(self.list, {
 			model = model, limbs = limbs, position = position, route = {}, routeIndex = 1,
 			facing = Vector3.new(0, 0, -1), patrol = nil, plannedDestination = nil, planAt = now + index * .019,
@@ -144,7 +144,8 @@ function Shoppers:step(dt, now, workers, catch)
 			shopper.facing = facing
 		end
 
-		local pose = CFrame.lookAt(shopper.position, shopper.position + shopper.facing)
+		local position = shopper.position + self.origin
+		local pose = CFrame.lookAt(position, position + shopper.facing)
 		shopper.model:PivotTo(pose)
 		local swing = if target then math.sin(shopper.stride) * .40 else 0
 		for _, limb in shopper.limbs do

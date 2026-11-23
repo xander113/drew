@@ -87,7 +87,7 @@ local function shuffle(random, items)
 	end
 end
 
-function Carts.new(parent, layout, random, onPickup, count, goal)
+function Carts.new(parent, layout, random, onPickup, count, goal, origin)
 	local self = setmetatable({ items = {}, parent = parent }, Carts)
 	local front = {}
 	for _, position in {
@@ -122,9 +122,9 @@ function Carts.new(parent, layout, random, onPickup, count, goal)
 	local backCount = math.min(#far, math.max(2, math.floor(count * .22)))
 	for index = 1, count do
 		local position = if index > count - backCount then far[index - count + backCount] else positions[index]
-		local frame = CFrame.new(position) * CFrame.Angles(0, math.rad(random:NextInteger(-35, 35)), 0)
+		local frame = CFrame.new(position + origin) * CFrame.Angles(0, math.rad(random:NextInteger(-35, 35)), 0)
 		local model, prompt = build(parent, frame, true)
-		local item = { model = model, position = position, carrier = nil, pushed = nil, prompt = prompt }
+		local item = { model = model, carrier = nil, pushed = nil, prompt = prompt }
 		table.insert(self.items, item)
 		prompt.Triggered:Connect(function(player)
 			onPickup(player, item)

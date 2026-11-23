@@ -1,365 +1,410 @@
-local HttpService = game:GetService("HttpService")
 local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
 
 local shared = ReplicatedStorage:WaitForChild("CartCatcher")
 local Config = require(shared.Config)
-local Layout = require(shared.Layout)
-local Carts = require(script.Parent.Carts)
-local Shoppers = require(script.Parent.Shoppers)
+local Directory = require(script.Parent.LobbyDirectory)
+local Shift = require(script.Parent.Shift)
+local Wallet = require(script.Parent.Wallet)
 
 local store = Workspace:WaitForChild("WWMS")
-local markers = store:WaitForChild("Markers")
-local bay = markers:WaitForChild("CartHole")
-local crew = markers:WaitForChild("Crew")
-local runtime = Instance.new("Folder")
-runtime.Name, runtime.Parent = "ShiftObjects", Workspace
+local crew = store.Markers.Crew
+local studio = RunService:IsStudio()
+local reserved = not studio and game.PrivateServerId ~= "" and game.PrivateServerOwnerId == 0
+local directory = Directory.new(studio)
+local wallet = Wallet.new()
+local players, rooms, arenaSlots = {}, {}, {}
+local reservedRoom
+local request = Instance.new("RemoteFunction")
+request.Name = "LobbyRequest"
+local changed = Instance.new("RemoteEvent")
+changed.Name = "LobbyChanged"
 
-local staffCollision = "WWMSWorker"
-if not PhysicsService:IsCollisionGroupRegistered(staffCollision) then
-	PhysicsService:RegisterCollisionGroup(staffCollision)
+local collisionGroup = "WWMSWorker"
+if not PhysicsService:IsCollisionGroupRegistered(collisionGroup) then PhysicsService:RegisterCollisionGroup(collisionGroup) end
+PhysicsService:CollisionGroupSetCollidable(collisionGroup, collisionGroup, false)
+
+local function validLevel(level)
+	return type(level) == "number" and level % 1 == 0 and Config.Levels[level] ~= nil
 end
-PhysicsService:CollisionGroupSetCollidable(staffCollision, staffCollision, false)
 
-local stateValue = Instance.new("StringValue")
-stateValue.Name = "ShiftState"
-local setQueue = Instance.new("RemoteEvent")
-setQueue.Name = "SetQueue"
+local function lobbyOpen(room)
+	return not room.closed and room.mode == "Multi" and room.phase == "Lobby" and #room.members < Config.MaxPlayers
+end
 
-local phase, level, deadline = "Waiting", 1, 0
-local goal, banked, shiftSize = 0, 0, 0
-local outcome = ""
-local players = {}
-local random = Random.new()
-local carts, shoppers, shiftObjects
-local ray = RaycastParams.new()
-ray.FilterType = Enum.RaycastFilterType.Include
-ray.FilterDescendantsInstances = { store }
-ray.RespectCanCollide = true
+local function summary(room)
+	local host = room.members[1]
+	return { code = room.code, host = if host then host.DisplayName else "", level = room.level, members = #room.members }
+end
 
-local function alive(player)
-	local character = player.Character
-	if not character then return nil end
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = character:FindFirstChild("HumanoidRootPart")
-	if humanoid and root and humanoid.Health > 0 then
-		return root, humanoid
+local function snapshot(entry)
+	entry.revision += 1
+	local state = {
+		revision = entry.revision, hosted = reserved, loading = entry.loading,
+		travel = entry.travel ~= nil, notice = entry.notice,
+	}
+	local room = entry.room
+	if not room then return state end
+
+	local members = {}
+	for _, member in room.members do table.insert(members, member.DisplayName) end
+	state.room = {
+		phase = room.phase, mode = room.mode, private = room.private,
+		code = if room.private and room.mode == "Multi" then room.code else nil,
+		level = room.level, host = room.members[1] == entry.player, members = members,
+		deadline = room.deadline,
+	}
+	if room.shift then
+		state.room.deadline = room.shift.deadline
+		state.room.goal, state.room.banked = room.shift.goal, room.shift.banked
+	elseif room.result then
+		state.room.result = room.result
+		state.room.mine = room.pay[entry.player]
 	end
-	return nil
+	return state
 end
 
-local function readyPlayers()
-	local ready = {}
-	for player, entry in players do
-		if entry.queued then table.insert(ready, player) end
-	end
-	return ready
+local function send(entry)
+	changed:FireClient(entry.player, snapshot(entry))
 end
 
-local function publish()
-	local queued = 0
-	for _, entry in players do
-		if entry.queued then queued += 1 end
-	end
-	stateValue.Value = HttpService:JSONEncode({
-		phase = phase, level = level, deadline = deadline, goal = goal,
-		banked = banked, workers = shiftSize, queued = queued, outcome = outcome,
-	})
+local function sendRoom(room)
+	for _, player in room.members do send(players[player]) end
 end
 
-local function releaseCart(player, entry, returned)
-	if entry.cart then
-		carts:release(entry.cart, returned)
-		entry.cart = nil
-		player:SetAttribute("CarryingCart", false)
-	end
+local function syncDirectory(room)
+	if studio then return end
+	room.directoryDirty = true
+	if room.directoryBusy then return end
+	room.directoryBusy = true
+	task.defer(function()
+		while room.directoryDirty do
+			room.directoryDirty = false
+			local ok, err = pcall(directory.publish, directory, room, summary(room), room.closed, lobbyOpen(room))
+			if not ok then warn("Cart Catcher could not update the lobby list", err) end
+		end
+		room.directoryBusy = false
+	end)
 end
 
-local function updateSpeed(entry, humanoid, now)
-	local outstandingQuestion = now < entry.questionUntil
-	local speed = if outstandingQuestion then Config.QuestionSpeed elseif entry.cart then Config.PushSpeed else Config.WalkSpeed
-	if humanoid.WalkSpeed ~= speed then humanoid.WalkSpeed = speed end
+local function roomChanged(room)
+	sendRoom(room)
+	syncDirectory(room)
 end
 
-local function clearQuestion(player, entry)
-	entry.questionUntil = 0
-	entry.questionCooldown = 0
-	player:SetAttribute("QuestionUntil", 0)
-	player:SetAttribute("Question", "")
+local function newRoom(info)
+	local room = {
+		code = info.code, mode = info.mode, private = info.private, level = info.level,
+		members = {}, phase = "Lobby", deadline = 0,
+	}
+	rooms[room.code] = room
+	return room
 end
 
-local function uniform(character, enabled)
-	local head = character:FindFirstChild("Head")
-	if not head then return end
-	local badge = head:FindFirstChild("WWMSCrew")
-	if badge then badge:Destroy() end
-	if not enabled then return end
-	badge = Instance.new("BillboardGui")
-	badge.Name = "WWMSCrew"
-	badge.Size = UDim2.fromOffset(44, 15)
-	badge.StudsOffsetWorldSpace = Vector3.new(0, 2.25, 0)
-	badge.MaxDistance = 48
-	badge.PlayerToHideFrom = Players:GetPlayerFromCharacter(character)
-	local caption = Instance.new("TextLabel")
-	caption.Size = UDim2.fromScale(1, 1)
-	caption.BackgroundColor3 = Color3.fromRGB(0, 81, 206)
-	caption.BorderSizePixel = 0
-	caption.TextColor3 = Color3.fromRGB(255, 223, 104)
-	caption.Font, caption.TextSize, caption.Text = Enum.Font.GothamBold, 10, "WWMS"
-	caption.Parent = badge
-	badge.Parent = head
-end
-
-local function placePlayer(player, entry)
-	local root, humanoid = alive(player)
-	if not root then return end
-	local character = player.Character
-	local station = if entry.station then markers:FindFirstChild("Worker" .. entry.station) else crew
-	root.Anchored = true
-	character:PivotTo(station.CFrame)
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	uniform(character, entry.station ~= nil)
-	updateSpeed(entry, humanoid, Workspace:GetServerTimeNow())
-	root.Anchored = entry.station == nil
-end
-
-local function pickup(player, item)
-	local now = Workspace:GetServerTimeNow()
-	local entry = players[player]
-	if phase ~= "Active" or now >= deadline or not entry or not entry.station then return end
-	if now < entry.pickupAt then return end
-	entry.pickupAt = now + .15
-	if entry.cart or item.carrier or not item.prompt.Enabled or now < entry.questionUntil then return end
-	local root, humanoid = alive(player)
-	if not root then return end
-	local handle = item.model.PrimaryPart
-	local toCart = handle.Position - root.Position
-	if toCart.Magnitude > Config.PickupDistance or Workspace:Raycast(root.Position, toCart, ray) then return end
-
-	local offset = humanoid.HipHeight + root.Size.Y / 2
-	if humanoid.RigType == Enum.HumanoidRigType.R6 then
-		local leg = player.Character:FindFirstChild("Left Leg")
-		offset += if leg then leg.Size.Y else 2
-	end
-	carts:claim(item, player, root, offset)
-	entry.cart = item
-	player:SetAttribute("CarryingCart", true)
-	updateSpeed(entry, humanoid, now)
-end
-
-local function questioned(player, question, now)
-	local entry = players[player]
-	if not entry or not entry.station or now < entry.questionCooldown then return false end
-	entry.questionUntil = now + Config.Levels[level].questionSeconds
-	entry.questionCooldown = entry.questionUntil + Config.QuestionCooldown
-	player:SetAttribute("Question", question)
-	player:SetAttribute("QuestionUntil", entry.questionUntil)
-	local _, humanoid = alive(player)
-	if humanoid then updateSpeed(entry, humanoid, now) end
+local function joinRoom(entry, room)
+	if entry.room or room.closed or room.phase ~= "Lobby" or #room.members >= Config.MaxPlayers then return false end
+	if room.mode == "Solo" and #room.members > 0 then return false end
+	table.insert(room.members, entry.player)
+	entry.room = room
+	entry.notice = nil
+	roomChanged(room)
 	return true
 end
 
-local function endShift(result, now)
-	phase = "Results"
-	deadline = now + Config.ResultSeconds
-	outcome = result
-	for player, entry in players do
-		entry.cart = nil
-		player:SetAttribute("CarryingCart", false)
-		clearQuestion(player, entry)
-		if entry.station then
-			entry.station = nil
-			player:SetAttribute("InShift", false)
-			placePlayer(player, entry)
-		end
-	end
-	carts:destroy()
-	shiftObjects:Destroy()
-	carts, shoppers, shiftObjects = nil, nil, nil
-	publish()
+local function buildArena()
+	if not studio then return store, Vector3.zero end
+	local slot = 1
+	while arenaSlots[slot] do slot += 1 end
+	arenaSlots[slot] = true
+	local offset = Vector3.new(((slot - 1) % 5 + 1) * 350, 0, math.floor((slot - 1) / 5) * 350)
+	local arena = store:Clone()
+	arena.Name = "ShiftArena" .. slot
+	arena.Forecourt["Crew Spawn"].Enabled = false
+	arena:PivotTo(store:GetPivot() + offset)
+	arena.Parent = Workspace
+	return arena, offset, slot
 end
 
-local function startShift(ready, now)
-	local settings = Config.shift(level, #ready)
-	shiftSize, goal, banked = #ready, settings.goal, 0
-	outcome = ""
-	shiftObjects = Instance.new("Folder")
-	shiftObjects.Name = "CurrentShift"
-	shiftObjects.Parent = runtime
-	carts = Carts.new(shiftObjects, Layout, random, pickup, settings.carts, settings.goal)
-	shoppers = Shoppers.new(shiftObjects, Layout, random, settings.shoppers, settings.speed, now)
-	for index, player in ready do
-		local entry = players[player]
-		entry.station = index
-		entry.delivered, entry.pickupAt = 0, 0
-		player:SetAttribute("ReturnedCarts", 0)
-		player:SetAttribute("InShift", true)
-		placePlayer(player, entry)
+local function clearArena(room)
+	if room.slot then
+		room.arena:Destroy()
+		arenaSlots[room.slot] = nil
 	end
-	phase, deadline = "Active", Workspace:GetServerTimeNow() + settings.seconds
-	publish()
+	room.arena, room.slot = nil, nil
 end
 
-local function leave(player, entry)
-	releaseCart(player, entry, false)
-	clearQuestion(player, entry)
-	if entry.station then
-		entry.station = nil
-		player:SetAttribute("InShift", false)
-		placePlayer(player, entry)
-	end
+local function startBriefing(room)
+	room.phase, room.deadline = "Briefing", Workspace:GetServerTimeNow() + Config.BriefingSeconds
+	room.result, room.pay = nil, nil
+	roomChanged(room)
 end
 
-local function configureCharacter(player, entry, character)
+local function startShift(room, now)
+	local arena, origin, slot = buildArena()
+	room.arena, room.slot = arena, slot
+	room.shift = Shift.new(room, arena, origin, now)
+	room.phase = "Active"
+	sendRoom(room)
+end
+
+local function endShift(room, outcome)
+	local shift = room.shift
+	room.result = { outcome = outcome, banked = shift.banked, goal = shift.goal }
+	room.pay = shift:finish(crew, wallet)
+	room.shift = nil
+	clearArena(room)
+	room.phase, room.deadline = "Results", 0
+	roomChanged(room)
+end
+
+local function leaveRoom(entry)
+	local room = entry.room
+	if not room then return end
+	if room.shift then room.shift:remove(entry.player) end
+	if room.pay then room.pay[entry.player] = nil end
+	table.remove(room.members, table.find(room.members, entry.player))
+	entry.room = nil
+	if #room.members == 0 then
+		room.closed = true
+		if room.shift then room.shift:destroy() end
+		clearArena(room)
+		rooms[room.code] = nil
+	end
+	roomChanged(room)
+end
+
+local function configureCharacter(entry, character)
 	if entry.descendants then entry.descendants:Disconnect() end
 	if entry.death then entry.death:Disconnect() end
-	local function configurePart(part)
-		if part:IsA("BasePart") then part.CollisionGroup = staffCollision end
+	local function useCollisionGroup(part)
+		if part:IsA("BasePart") then part.CollisionGroup = collisionGroup end
 	end
-	entry.descendants = character.DescendantAdded:Connect(configurePart)
-	for _, part in character:GetDescendants() do configurePart(part) end
+	entry.descendants = character.DescendantAdded:Connect(useCollisionGroup)
+	for _, part in character:GetDescendants() do useCollisionGroup(part) end
+
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	local root = character:WaitForChild("HumanoidRootPart", 10)
+	local player = entry.player
 	if not humanoid or not root or players[player] ~= entry or player.Character ~= character then return end
 	entry.death = humanoid.Died:Connect(function()
-		releaseCart(player, entry, false)
-		clearQuestion(player, entry)
+		local shift = entry.room and entry.room.shift
+		if shift then shift:reset(player) end
 	end)
-	placePlayer(player, entry)
+	local shift = entry.room and entry.room.shift
+	if shift then shift:spawn(player) else Shift.place(player, crew, false) end
+end
+
+local function arrive(entry)
+	local player = entry.player
+	local ok, info = pcall(directory.admit, directory, player)
+	if not ok then warn("Cart Catcher could not check a lobby join", info) end
+	if players[player] ~= entry then return end
+	entry.loading = false
+	if ok and info then
+		if not reservedRoom then reservedRoom = newRoom(info) end
+		if reservedRoom.code == info.code and joinRoom(entry, reservedRoom) then
+			if reservedRoom.mode == "Solo" then startBriefing(reservedRoom) end
+			return
+		end
+	end
+	entry.notice = if ok then "This lobby is closed or full." else "We could not open this lobby."
+	send(entry)
 end
 
 local function addPlayer(player)
 	if players[player] then return end
-	local entry = { queued = false, pickupAt = 0, questionUntil = 0, questionCooldown = 0, delivered = 0, requestAt = 0 }
+	local entry = { player = player, loading = reserved, revision = 0, requestAt = 0, createAt = 0, listAt = 0, syncAt = 0, joinAt = 0 }
 	players[player] = entry
-	player:SetAttribute("Queued", false)
-	player:SetAttribute("InShift", false)
-	player:SetAttribute("CarryingCart", false)
-	player:SetAttribute("ReturnedCarts", 0)
-	clearQuestion(player, entry)
-	entry.characterAdded = player.CharacterAdded:Connect(function(character)
-		configureCharacter(player, entry, character)
+	wallet:add(player)
+	entry.added = player.CharacterAdded:Connect(function(character) configureCharacter(entry, character) end)
+	entry.removing = player.CharacterRemoving:Connect(function()
+		local shift = entry.room and entry.room.shift
+		if shift then shift:reset(player) end
 	end)
-	entry.characterRemoving = player.CharacterRemoving:Connect(function()
-		releaseCart(player, entry, false)
-		clearQuestion(player, entry)
+	if player.Character then task.spawn(configureCharacter, entry, player.Character) end
+	if reserved then task.spawn(arrive, entry) end
+end
+
+local function travel(entry, options)
+	local player = entry.player
+	if players[player] ~= entry then return { error = "You left the game." } end
+	local attempt = {}
+	entry.travel, entry.notice = attempt, nil
+	send(entry)
+	local ok, err = pcall(TeleportService.TeleportAsync, TeleportService, game.PlaceId, { player }, options)
+	if not ok then
+		warn("Cart Catcher could not move a player", err)
+		if entry.travel == attempt then entry.travel = nil end
+		send(entry)
+		return { error = "Could not move you. Try again." }
+	end
+	task.delay(35, function()
+		if players[player] == entry and entry.travel == attempt then
+			entry.travel = nil
+			entry.notice = "Could not move you. Try again."
+			send(entry)
+		end
 	end)
-	if player.Character then task.spawn(configureCharacter, player, entry, player.Character) end
+	return {}
+end
+
+local function browse()
+	if not studio then return directory:list() end
+	local rows = {}
+	for _, room in rooms do
+		if lobbyOpen(room) and not room.private then table.insert(rows, summary(room)) end
+	end
+	table.sort(rows, function(a, b)
+		return if a.host == b.host then a.code < b.code else a.host < b.host
+	end)
+	return rows
+end
+
+local function create(entry, mode, level, privacy)
+	if not validLevel(level) or type(privacy) ~= "boolean" then return { error = "Pick a level." } end
+	local now = os.clock()
+	if now < entry.createAt then return { error = "Wait a moment and try again." } end
+	entry.createAt = now + 4
+	if not studio then
+		local room = directory:create(entry.player.UserId, mode, privacy, level)
+		return travel(entry, directory:options(room, entry.player.UserId))
+	end
+	local code = directory:newCode()
+	while rooms[code] do code = directory:newCode() end
+	local room = newRoom({ code = code, mode = mode, private = privacy, level = level })
+	joinRoom(entry, room)
+	if mode == "Solo" then startBriefing(room) end
+	return {}
+end
+
+local function handle(entry, action, arg, extra)
+	local room = entry.room
+	if entry.loading or entry.travel then return { error = "Please wait." } end
+	if action == "Leave" then
+		if reserved then
+			wallet:waitForSave(entry.player.UserId, 3)
+			return travel(entry, nil)
+		end
+		leaveRoom(entry)
+		Shift.place(entry.player, crew, false)
+		send(entry)
+		return {}
+	end
+	if room then
+		if room.members[1] ~= entry.player then return { error = "Only the host can do that." } end
+		if room.phase == "Lobby" or room.phase == "Results" then
+			if action == "Level" and validLevel(arg) then
+				room.level = arg
+				roomChanged(room)
+				return {}
+			end
+			if action == "Start" then
+				startBriefing(room)
+				return {}
+			end
+			if action == "Reopen" and room.mode == "Multi" and room.phase == "Results" then
+				room.phase, room.result, room.pay = "Lobby", nil, nil
+				roomChanged(room)
+				return {}
+			end
+		end
+		return { error = "You are already in a lobby." }
+	end
+	if reserved then return { error = "Go back to the menu." } end
+
+	if action == "Solo" then return create(entry, "Solo", arg, true) end
+	if action == "Create" then return create(entry, "Multi", arg, extra) end
+	if action == "JoinCode" or action == "JoinPublic" then
+		local code = Directory.code(arg)
+		if not code then return { error = "Use the 7 letters or numbers in the code." } end
+		local now = os.clock()
+		if now < entry.joinAt then return { error = "Wait a moment and try again." } end
+		entry.joinAt = now + .8
+		local publicOnly = action == "JoinPublic"
+		if not studio then
+			local target = directory:find(code, publicOnly, Config.MaxPlayers)
+			if target then return travel(entry, directory:options(target, entry.player.UserId)) end
+		else
+			local target = rooms[code]
+			if target and lobbyOpen(target) and (not publicOnly or not target.private) and joinRoom(entry, target) then return {} end
+		end
+		return { error = "This lobby is closed or full." }
+	end
+	return { error = "Try again." }
+end
+
+request.OnServerInvoke = function(player, action, arg, extra)
+	local entry = players[player]
+	if not entry then return { error = "Please wait." } end
+	local now = os.clock()
+	if action == "Sync" then
+		if now < entry.syncAt then return { error = "Please wait." } end
+		entry.syncAt = now + .6
+		return { state = snapshot(entry) }
+	end
+	if action == "Browse" then
+		if now < entry.listAt or entry.room or reserved then return { error = "Please wait." } end
+		entry.listAt = now + 1.5
+		local ok, rows = pcall(browse)
+		return if ok then { rows = rows } else { error = "Could not look for lobbies." }
+	end
+	if now < entry.requestAt or entry.busy then return { error = "Please wait." } end
+	entry.requestAt = now + .25
+	entry.busy = true
+	local ok, result = pcall(handle, entry, action, arg, extra)
+	entry.busy = false
+	if ok then return result end
+	warn("Cart Catcher lobby request failed", action, result)
+	return { error = "That did not work. Try again." }
 end
 
 Players.PlayerAdded:Connect(addPlayer)
 Players.PlayerRemoving:Connect(function(player)
 	local entry = players[player]
 	if not entry then return end
-	releaseCart(player, entry, false)
-	for _, key in { "descendants", "death", "characterAdded", "characterRemoving" } do
-		local connection = entry[key]
-		if connection then connection:Disconnect() end
+	leaveRoom(entry)
+	for _, key in { "added", "removing", "descendants", "death" } do
+		if entry[key] then entry[key]:Disconnect() end
 	end
 	players[player] = nil
-	publish()
+	wallet:remove(player)
 end)
 for _, player in Players:GetPlayers() do addPlayer(player) end
 
-setQueue.OnServerEvent:Connect(function(player, enabled)
+TeleportService.TeleportInitFailed:Connect(function(player)
 	local entry = players[player]
-	local now = Workspace:GetServerTimeNow()
-	if typeof(enabled) ~= "boolean" or not entry or now < entry.requestAt then return end
-	entry.requestAt = now + .4
-	if enabled == entry.queued then return end
-	if enabled and #readyPlayers() >= Config.MaxPlayers then return end
-	entry.queued = enabled
-	player:SetAttribute("Queued", enabled)
-	if not enabled then leave(player, entry) end
-	publish()
+	if not entry or not entry.travel then return end
+	entry.travel = nil
+	entry.notice = "Could not move you. Try again."
+	send(entry)
 end)
 
-local function isInBay(position)
-	local relative = bay.CFrame:PointToObjectSpace(position)
-	local half = bay.Size / 2
-	return math.abs(relative.X) <= half.X and math.abs(relative.Y) <= half.Y and math.abs(relative.Z) <= half.Z
-end
+changed.Parent = shared
+request.Parent = shared
 
-local function activeStep(dt, now)
-	if now >= deadline then
-		endShift("Time", now)
-		return
-	end
-
-	local workers = {}
-	local participating, filled = 0, false
-	local changed = false
-	for player, entry in players do
-		if not entry.station then continue end
-		participating += 1
-		local root, humanoid = alive(player)
-		if not root then continue end
-		if entry.cart and isInBay(root.Position) then
-			releaseCart(player, entry, true)
-			entry.delivered += 1
-			player:SetAttribute("ReturnedCarts", entry.delivered)
-			banked += 1
-			if banked >= goal then
-				filled = true
-				break
-			end
-			changed = true
-		end
-		updateSpeed(entry, humanoid, now)
-		if root.Position.Y > 0 and root.Position.Y < 9 and math.abs(root.Position.X) < 85 then
-			local position = Vector3.new(root.Position.X, 0, root.Position.Z)
-			table.insert(workers, { player = player, position = position, eligible = now >= entry.questionCooldown })
-		end
-	end
-
-	if filled then
-		endShift("Filled", now)
-	elseif participating == 0 then
-		endShift("Ended", now)
-	else
-		if changed then publish() end
-		shoppers:step(dt, now, workers, questioned)
-	end
-end
-
-publish()
-stateValue.Parent = shared
-setQueue.Parent = shared
-local accumulated = 0
+local elapsed, nextDirectorySync = 0, 0
 RunService.Heartbeat:Connect(function(dt)
-	accumulated += dt
-	if accumulated < 1 / 15 then return end
-	local step = math.min(accumulated, .15)
-	accumulated = 0
+	elapsed += dt
+	if elapsed < 1 / 15 then return end
+	local step = math.min(elapsed, .15)
+	elapsed = 0
 	local now = Workspace:GetServerTimeNow()
-	if phase == "Active" then
-		activeStep(step, now)
-	elseif phase == "Waiting" then
-		if #readyPlayers() >= Config.MinPlayers then
-			phase, deadline = "Briefing", now + Config.BriefingSeconds
-			publish()
+	local updateDirectory = not studio and now >= nextDirectorySync
+	if updateDirectory then nextDirectorySync = now + 20 end
+	for _, room in rooms do
+		if room.phase == "Briefing" and now >= room.deadline then
+			startShift(room, now)
+		elseif room.shift then
+			local outcome, progress = room.shift:step(step, now)
+			if outcome then endShift(room, outcome)
+			elseif progress then sendRoom(room) end
 		end
-	elseif phase == "Briefing" then
-		local ready = readyPlayers()
-		if #ready < Config.MinPlayers then
-			phase, level, deadline = "Waiting", 1, 0
-			publish()
-		elseif now >= deadline then
-			startShift(ready, now)
-		end
-	elseif now >= deadline then
-		local ready = readyPlayers()
-		if #ready < Config.MinPlayers then
-			phase, level, deadline = "Waiting", 1, 0
-		else
-			if outcome == "Filled" then level = math.min(level + 1, #Config.Levels) end
-			phase, deadline = "Briefing", now + Config.BriefingSeconds
-		end
-		outcome, goal, banked, shiftSize = "", 0, 0, 0
-		publish()
+		if updateDirectory then syncDirectory(room) end
 	end
 end)
+
+game:BindToClose(function() wallet:close() end)

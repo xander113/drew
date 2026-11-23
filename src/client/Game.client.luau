@@ -1,133 +1,253 @@
 local GuiService = game:GetService("GuiService")
-local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local shared = ReplicatedStorage:WaitForChild("CartCatcher")
 local Config = require(shared:WaitForChild("Config"))
-local setQueue = shared:WaitForChild("SetQueue")
-local value = shared:WaitForChild("ShiftState")
+local Pay = require(shared:WaitForChild("Pay"))
+local request = shared:WaitForChild("LobbyRequest")
+local changed = shared:WaitForChild("LobbyChanged")
 local Interface = require(script.Parent.Interface)
 local cameras = Workspace:WaitForChild("WWMS"):WaitForChild("MenuCameras")
-
 local shots = {}
 for _, name in { "Facade", "Willy", "Aisles", "Return" } do
 	table.insert(shots, cameras:WaitForChild(name).CFrame)
 end
 
-local view = Interface.new(player:WaitForChild("PlayerGui"), Config.Levels)
-local state = HttpService:JSONDecode(value.Value)
-local playing, cinematicStart
-local lastUpdate = 0
-local previousQueued = -math.huge
-local savedFov
+local view = Interface.new(player:WaitForChild("PlayerGui"), Config, Pay)
+if not RunService:IsStudio() then TeleportService:SetTeleportGui(view:teleportGui()) end
+
+local route = "Loading"
+local state = { revision = 0 }
+local model = { solo = 1, multi = 1, roomLevel = 1, private = false, code = "" }
+local actions = {}
+local listBusy, busy = false, false
+local message = ""
+local active, savedFov
+local filmStart = Workspace:GetServerTimeNow()
+local lastRefresh, nextBrowse = 0, 0
 local input = UserInputService:GetLastInputType()
-local shotDuration = 7.5
+local menuPages = { Home = true, Solo = true, Multi = true, Code = true, Create = true }
 
-local function selectButton()
-	if not playing and string.match(input.Name, "^Gamepad") and not GuiService.SelectedObject then
-		GuiService.SelectedObject = view.button
-	end
-end
-
-local function applyCamera()
+local function setCamera()
 	local camera = Workspace.CurrentCamera
 	if not camera then return end
-	if playing then
+	if active then
 		camera.CameraType = Enum.CameraType.Custom
 		if savedFov then
 			camera.FieldOfView = savedFov
 			savedFov = nil
 		end
-		local character = player.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 		if humanoid then camera.CameraSubject = humanoid end
 	else
 		savedFov = savedFov or camera.FieldOfView
-		camera.CameraType = Enum.CameraType.Scriptable
-		camera.FieldOfView = 62
+		camera.CameraType, camera.FieldOfView = Enum.CameraType.Scriptable, 62
+	end
+end
+
+local function setStatus()
+	if state.travel then
+		view:setNotice("One moment…", true)
+	elseif busy then
+		view:setNotice("Please wait…", true)
+	elseif route == "Results" and message == "" and player:GetAttribute("WalletSaving") then
+		view:setNotice("Saving pay…", true)
+	else
+		view:setNotice(if message ~= "" then message else state.notice, false)
+	end
+end
+
+local function focus(force)
+	if not active and string.match(input.Name, "^Gamepad") then
+		local current = GuiService.SelectedObject
+		if force or not current or not current:IsDescendantOf(view.screen) then
+			GuiService.SelectedObject = view.first
+		end
 	end
 end
 
 local function refresh(now)
-	local active = state.phase == "Active" and player:GetAttribute("InShift") == true
+	local room = state.room
 	local carrying = player:GetAttribute("CarryingCart") == true
-	local interrupted = now < (player:GetAttribute("QuestionUntil") or 0)
-	ProximityPromptService.Enabled = active and not carrying and not interrupted
-	if active ~= playing then
-		playing = active
-		if not playing then cinematicStart = now end
-		view.menu.Visible, view.backdrop.Enabled, view.hud.Visible = not playing, not playing, playing
-		if playing and GuiService.SelectedObject == view.button then
-			GuiService.SelectedObject = nil
-		else
-			selectButton()
-		end
-		applyCamera()
+	local question
+	if now < (player:GetAttribute("QuestionUntil") or 0) then
+		question = player:GetAttribute("Question")
 	end
-
-	local remaining = math.max(0, math.ceil(state.deadline - now))
-	if playing then
-		local question = if interrupted then player:GetAttribute("Question") else nil
-		view:showShift(state, Config.Levels[state.level].name, remaining, player:GetAttribute("ReturnedCarts") or 0, carrying, question, input)
-	else
-		view:showMenu(state, player:GetAttribute("Queued") == true, remaining)
+	local playing = route == "Active" and room ~= nil
+	if active ~= playing then
+		active = playing
+		if not active then filmStart = now end
+		view.menu.Visible, view.backdrop.Enabled, view.hud.Visible = not active, not active, active
+		if active then
+			local selection = GuiService.SelectedObject
+			if selection and selection:IsDescendantOf(view.screen) then GuiService.SelectedObject = nil end
+		end
+		setCamera()
+	end
+	ProximityPromptService.Enabled = playing and not carrying and not question
+	if room and playing then
+		local seconds = math.max(0, math.ceil(room.deadline - now))
+		view:showShift(room, seconds, player:GetAttribute("ReturnedCarts") or 0, carrying, question, input)
+	elseif room and view.countdown then
+		view.countdown.Text = tostring(math.max(1, math.ceil(room.deadline - now)))
 	end
 end
 
-view.button.Activated:Connect(function()
-	local now = os.clock()
-	if now - previousQueued < .5 then return end
-	previousQueued = now
-	setQueue:FireServer(player:GetAttribute("Queued") ~= true)
-end)
-value:GetPropertyChangedSignal("Value"):Connect(function()
-	state = HttpService:JSONDecode(value.Value)
+local function render()
+	if route ~= "Active" then
+		view:showPage(route, model, actions)
+		focus(false)
+	end
+	setStatus()
 	refresh(Workspace:GetServerTimeNow())
-end)
-for _, attribute in { "Queued", "InShift", "CarryingCart", "QuestionUntil", "Question", "ReturnedCarts" } do
+end
+
+local function accept(update)
+	if update.revision <= state.revision then return end
+	local previous = state.room
+	state, model.room = update, update.room
+	local room = update.room
+	if room then
+		if route ~= "Level" or not previous or previous.phase ~= room.phase or not room.host then
+			route = room.phase
+		end
+	elseif update.loading then
+		route = "Loading"
+	elseif update.hosted then
+		route = "Return"
+	elseif not menuPages[route] then
+		route = "Home"
+	end
+	if not room and not previous and view.route == route then
+		setStatus()
+	else
+		render()
+	end
+end
+
+function actions.go(page)
+	route, message = page, ""
+	state.notice = nil
+	render()
+	if route == "Multi" and not model.rows then actions.browse(false) end
+end
+
+function actions.soloLevel(level) model.solo = level end
+function actions.multiLevel(level) model.multi = level end
+function actions.pickRoomLevel(level) model.roomLevel = level end
+function actions.code(code) model.code = code end
+function actions.privacy(private)
+	model.private = private
+	render()
+end
+
+function actions.roomLevel()
+	model.roomLevel = state.room.level
+	actions.go("Level")
+end
+
+function actions.browse(manual)
+	if route ~= "Multi" or listBusy or busy then return end
+	listBusy = true
+	nextBrowse = os.clock() + 9
+	if manual then view:setNotice("Looking for lobbies…", true) end
+	task.spawn(function()
+		local ok, response = pcall(request.InvokeServer, request, "Browse")
+		listBusy = false
+		if route ~= "Multi" then return end
+		if ok and response.rows then
+			model.rows = response.rows
+			message = ""
+			render()
+		elseif not model.rows or manual then
+			message = "Could not look for lobbies. Try Refresh."
+			setStatus()
+		end
+	end)
+end
+
+function actions.send(action, arg, extra)
+	if busy or state.travel then return end
+	busy, message = true, ""
+	setStatus()
+	task.spawn(function()
+		local ok, response = pcall(request.InvokeServer, request, action, arg, extra)
+		busy = false
+		if not ok or type(response) ~= "table" then
+			message = "That did not work. Try again."
+		elseif response.error then
+			message = response.error
+		elseif response.state then
+			accept(response.state)
+		elseif action == "Level" and state.room and route == "Level" then
+			actions.go(state.room.phase)
+		end
+		setStatus()
+	end)
+end
+
+changed.OnClientEvent:Connect(accept)
+for _, attribute in { "CarryingCart", "QuestionUntil", "Question", "ReturnedCarts" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
 		refresh(Workspace:GetServerTimeNow())
 	end)
 end
-UserInputService.LastInputTypeChanged:Connect(function(lastInput)
-	input = lastInput
-	selectButton()
+local function updateWallet()
+	view:setWallet(player:GetAttribute("WalbucksCents") or 0, player:GetAttribute("WalletReady"), player:GetAttribute("WalletSaving"))
+	setStatus()
+end
+for _, attribute in { "WalbucksCents", "WalletReady", "WalletSaving" } do
+	player:GetAttributeChangedSignal(attribute):Connect(updateWallet)
+end
+UserInputService.LastInputTypeChanged:Connect(function(last)
+	input = last
+	focus(false)
 	refresh(Workspace:GetServerTimeNow())
 end)
-Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(applyCamera)
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(setCamera)
 player.CharacterAdded:Connect(function(character)
-	if character:WaitForChild("Humanoid", 10) then applyCamera() end
+	if character:WaitForChild("Humanoid", 10) then setCamera() end
 end)
 view.screen:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() view:resize() end)
-view:resize()
-refresh(Workspace:GetServerTimeNow())
 
+view:resize()
+updateWallet()
+render()
+task.spawn(function()
+	while state.revision == 0 do
+		local ok, response = pcall(request.InvokeServer, request, "Sync")
+		if ok and response and response.state then accept(response.state) end
+		if state.revision == 0 then task.wait(.8) end
+	end
+end)
+
+local SHOT_SECONDS = 7.5
 RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 1, function()
 	local now = Workspace:GetServerTimeNow()
-	if now >= lastUpdate then
-		lastUpdate = now + .10
+	if now >= lastRefresh then
+		lastRefresh = now + .10
 		refresh(now)
+		if route == "Multi" and os.clock() >= nextBrowse then actions.browse(false) end
 	end
-	if playing then return end
+	if active then return end
 	local camera = Workspace.CurrentCamera
 	if not camera then return end
 
-	local elapsed = now - cinematicStart
-	local shotIndex = math.floor(elapsed / shotDuration) % #shots + 1
-	local shotTime = elapsed % shotDuration
-	local alpha = math.clamp(shotTime / shotDuration, 0, 1)
-	local frame = shots[shotIndex]
+	local elapsed = if GuiService.ReducedMotionEnabled then SHOT_SECONDS / 2 else now - filmStart
+	local shotTime = elapsed % SHOT_SECONDS
+	local frame = shots[math.floor(elapsed / SHOT_SECONDS) % #shots + 1]
+	local alpha = shotTime / SHOT_SECONDS
 	local ease = alpha * alpha * (3 - 2 * alpha)
 	local portrait = camera.ViewportSize.X < camera.ViewportSize.Y
-	local yaw = if portrait then 3 else 11
+	local yaw = if portrait then 3 else 16
 	camera.CFrame = frame * CFrame.new(2 - 5 * ease, 1.5 - ease, 1 - 5 * ease) * CFrame.Angles(0, math.rad(yaw - 3 * ease), 0)
 	camera.Focus = frame * CFrame.new(0, 0, -33)
-	local fadeWindow = .44
-	view.fade.BackgroundTransparency = math.clamp(math.min(shotTime, shotDuration - shotTime) / fadeWindow, 0, 1)
+	view.fade.BackgroundTransparency = math.clamp(math.min(shotTime, SHOT_SECONDS - shotTime) / .44, 0, 1)
 end)
