@@ -43,18 +43,30 @@ end
 
 local function show(profile)
 	if not profile.player then return end
-	local amount = profile.saved.cents
+	local amount, completed = profile.saved.cents, profile.saved.rounds > 0
 	for _, entry in profile.pending do
-		if not profile.saved.receipts[entry.id] then amount = math.max(0, amount + (entry.cents or 0)) end
+		if not profile.saved.receipts[entry.id] then
+			amount = math.max(0, amount + (entry.cents or 0))
+			if entry.round then completed = true end
+		end
 	end
 	profile.player:SetAttribute("WalbucksCents", amount)
+	profile.player:SetAttribute("HasFinishedShift", completed)
 	profile.player:SetAttribute("WalletReady", profile.loaded)
 	profile.player:SetAttribute("WalletSaving", #profile.pending > 0)
 end
 
 function Wallet.new()
+	local studio = RunService:IsStudio()
+	local store
+	if studio then
+		-- A published Studio session can use the service without touching live wallet records.
+		if game.GameId ~= 0 then store = DataStoreService:GetDataStore("CartCatcherWallet_v1", "studio") end
+	else
+		store = DataStoreService:GetDataStore("CartCatcherWallet_v1")
+	end
 	local self = setmetatable({
-		store = if RunService:IsStudio() then nil else DataStoreService:GetDataStore("CartCatcherWallet_v1"),
+		store = store,
 		profiles = {},
 	}, Wallet)
 	task.spawn(function()

@@ -72,80 +72,150 @@ function Shoppers:resume(shopper, now)
 	shopper.speaking = false
 	shopper.restUntil, shopper.planAt = now + 4, now + .12
 	shopper.route, shopper.routeIndex = {}, 1
+	shopper.following, shopper.plannedDestination = nil, nil
+end
+
+local function compileStops(layout, routes)
+	local stops = {}
+	for name, visits in layout.ShoppingStops do
+		local group = {}
+		for _, visit in visits do
+			local point = Vector3.new(visit.x, 0, visit.z)
+			if routes:clear(point, point) then
+				table.insert(group, { point = point, gaze = Vector3.new(visit.faceX, 0, visit.faceZ) })
+			end
+		end
+		stops[name] = group
+	end
+	return stops
+end
+
+local function visitNext(self, shopper)
+	if not shopper.trip or shopper.visitIndex > #shopper.trip then
+		local trips = self.trips
+		local first = self.random:NextInteger(1, #trips)
+		if trips[first] == shopper.trip and #trips > 1 then first = first % #trips + 1 end
+		shopper.trip, shopper.visitIndex = trips[first], 1
+	end
+	local group = self.stops[shopper.trip[shopper.visitIndex]]
+	shopper.visitIndex += 1
+	if group and #group > 0 then
+		shopper.visit = group[self.random:NextInteger(1, #group)]
+	else
+		local points = self.routes.patrol
+		local point = points[self.random:NextInteger(1, #points)]
+		shopper.visit = { point = point, gaze = nil }
+	end
+	shopper.browseUntil = nil
+end
+
+local function shoppingTarget(self, shopper, now)
+	if not shopper.visit then visitNext(self, shopper) end
+	local visit = shopper.visit
+	if (visit.point - shopper.position).Magnitude > .6 then
+		shopper.browseUntil = nil
+		return visit.point
+	end
+	if not shopper.browseUntil then
+		shopper.browseUntil = now + self.random:NextNumber(.85, 2.0)
+		if visit.gaze then
+			local angle = visit.gaze - shopper.position
+			if angle.Magnitude > .1 then shopper.facing = angle.Unit end
+		end
+	end
+	if now >= shopper.browseUntil then
+		visitNext(self, shopper)
+		return shopper.visit.point
+	end
+	return nil
 end
 
 function Shoppers.new(parent, layout, random, count, speed, now, origin, range)
-	local self = setmetatable({ list = {}, random = random, routes = AisleRoutes.new(layout), speed = speed, origin = origin, range = range }, Shoppers)
-	local starts = table.clone(self.routes.patrol)
+	local routes = AisleRoutes.new(layout)
+	local self = setmetatable({
+		list = {}, random = random, routes = routes, speed = speed, origin = origin, range = range,
+		trips = layout.ShoppingTrips, stops = compileStops(layout, routes),
+	}, Shoppers)
+	local starts = table.clone(routes.patrol)
 	for index = 1, count do
 		local chosen = random:NextInteger(index, #starts)
 		starts[index], starts[chosen] = starts[chosen], starts[index]
 		local position = starts[index]
 		local model = shopperModel(parent, index, position + origin, random)
+		local trip = self.trips[random:NextInteger(1, #self.trips)]
 		table.insert(self.list, {
-			model = model, position = position, route = {}, routeIndex = 1,
-			facing = Vector3.new(0, 0, -1), patrol = nil, plannedDestination = nil, planAt = now + index * .019,
-			restUntil = now + 2.5 + (index % 5) * .25,
+			model = model, position = position, route = {}, routeIndex = 1, trip = trip, visitIndex = random:NextInteger(1, #trip - 1),
+			facing = Vector3.new(0, 0, -1), planAt = now + index * .019, restUntil = now + 2.5 + (index % 5) * .25,
 		})
 	end
 	return self
 end
 
+function Shoppers:plan(shopper, now, workers, catch)
+	local nearest, distance, rank = nil, self.range, math.huge
+	if now >= shopper.restUntil then
+		for _, worker in workers do
+			local gap = (worker.position - shopper.position).Magnitude
+			local cost = gap + (if shopper.following == worker.player then 0 else 3)
+			if worker.eligible and worker.position.Z <= 46 and gap < self.range and cost < rank then
+				nearest, distance, rank = worker, gap, cost
+			end
+		end
+	end
+	if nearest and distance <= 4.35 and self.routes:clear(shopper.position, nearest.position) then
+		local lines = scenes[self.random:NextInteger(1, #scenes)]
+		if catch(nearest.player, shopper, lines, now) then
+			nearest.eligible = false
+			return
+		end
+		nearest = nil
+	end
+
+	local previous = shopper.following
+	local destination = if nearest then self.routes:approach(shopper.position, nearest.position) else nil
+	if destination then shopper.browseUntil = nil end
+	shopper.following = if destination then nearest.player else nil
+	destination = destination or shoppingTarget(self, shopper, now)
+	if not destination then
+		shopper.route, shopper.routeIndex, shopper.plannedDestination = {}, 1, nil
+	elseif self.routes:clear(shopper.position, destination) then
+		shopper.route, shopper.routeIndex, shopper.plannedDestination = { destination }, 1, destination
+	elseif previous ~= shopper.following or shopper.routeIndex > #shopper.route
+		or not shopper.plannedDestination or (destination - shopper.plannedDestination).Magnitude > 4.8 then
+		shopper.route = self.routes:trace(shopper.position, destination)
+		shopper.routeIndex, shopper.plannedDestination = 1, destination
+	end
+	shopper.planAt = now + .32 + self.random:NextNumber(0, .12)
+end
+
+local function move(shopper, remaining)
+	while remaining > .001 do
+		local target = shopper.route[shopper.routeIndex]
+		if not target then return end
+		local delta = target - shopper.position
+		local distance = delta.Magnitude
+		if distance < .02 then
+			shopper.routeIndex += 1
+		else
+			shopper.facing = delta.Unit
+			if distance >= remaining then
+				shopper.position += shopper.facing * remaining
+				return
+			end
+			shopper.position = target
+			remaining -= distance
+			shopper.routeIndex += 1
+		end
+	end
+end
+
 function Shoppers:step(dt, now, workers, catch)
 	for _, shopper in self.list do
 		if shopper.speaking then continue end
-		if now >= shopper.planAt then
-			local nearest, distance = nil, self.range
-			if now >= shopper.restUntil then
-				for _, worker in workers do
-					local delta = worker.position - shopper.position
-					local gap = delta.Magnitude
-					if worker.position.Z <= 46 and gap < distance and worker.eligible then
-						nearest, distance = worker, gap
-					end
-				end
-			end
-			if nearest and distance <= 4.35 and self.routes:clear(shopper.position, nearest.position) then
-				local lines = scenes[self.random:NextInteger(1, #scenes)]
-				if catch(nearest.player, shopper, lines, now) then
-					nearest.eligible = false
-					continue
-				end
-				nearest = nil
-			end
-			local destination
-			if nearest then
-				destination = nearest.position
-			else
-				if not shopper.patrol or (shopper.patrol - shopper.position).Magnitude < 2 then
-					local nodes = self.routes.patrol
-					shopper.patrol = nodes[self.random:NextInteger(1, #nodes)]
-				end
-				destination = shopper.patrol
-			end
-			local planExpired = shopper.routeIndex > #shopper.route
-			local destinationMoved = not shopper.plannedDestination or (destination - shopper.plannedDestination).Magnitude > 9
-			if destinationMoved or planExpired or self.routes:clear(shopper.position, destination) then
-				shopper.route = self.routes:trace(shopper.position, destination)
-				shopper.routeIndex = 1
-				shopper.plannedDestination = destination
-			end
-			shopper.planAt = now + .30 + self.random:NextNumber(0, .10)
-		end
-
-		local target = shopper.route[shopper.routeIndex]
-		while target and (target - shopper.position).Magnitude < .11 do
-			shopper.routeIndex += 1
-			target = shopper.route[shopper.routeIndex]
-		end
-		if target then
-			local delta = target - shopper.position
-			local distance = math.min(delta.Magnitude, self.speed * dt * (now < shopper.restUntil and .65 or 1))
-			local facing = delta.Unit
-			shopper.position += facing * distance
-			shopper.facing = facing
-		end
-
+		if now >= shopper.planAt then self:plan(shopper, now, workers, catch) end
+		if shopper.speaking then continue end
+		local pace = if shopper.following then 1 else .63
+		move(shopper, self.speed * dt * pace)
 		pose(shopper, self.origin)
 	end
 end

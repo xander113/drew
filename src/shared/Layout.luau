@@ -47,6 +47,33 @@ layout.WetSpots = table.freeze({
 	obstacle("Wet Spot", 74, 41, 4.4, 3.6),
 })
 
+-- A visit holds a place to stand and a fixture to look at.
+local function visit(x, z, faceX, faceZ)
+	return table.freeze({ x = x, z = z, faceX = faceX, faceZ = faceZ })
+end
+
+layout.ShoppingStops = table.freeze({
+	Produce = table.freeze({ visit(-71, 22, -78, 23), visit(-70, 1, -78, 2) }),
+	Bakery = table.freeze({ visit(-61, -63, -57, -70), visit(-53, -62, -57, -70) }),
+	Pantry = table.freeze({ visit(-25, -32, -31, -32), visit(-37, 19, -31, 19) }),
+	Drinks = table.freeze({ visit(-19, -62, -20, -70), visit(-27, -63, -20, -70) }),
+	Snacks = table.freeze({ visit(-15, 16, -9, 16), visit(-3, -29, -9, -29) }),
+	Home = table.freeze({ visit(41, 15, 35, 15), visit(27, 19, 35, 19) }),
+	Hardware = table.freeze({ visit(50, -21, 57, -21), visit(62, -24, 57, -24) }),
+	Dairy = table.freeze({ visit(16, -62, 18, -70), visit(22, -63, 18, -70) }),
+	Pickup = table.freeze({ visit(56, -63, 56, -70), visit(62, -61, 56, -70) }),
+	Checkout = table.freeze({ visit(56, 43, 60, 54), visit(64, 44, 68, 54), visit(72, 45, 76, 54) }),
+})
+
+layout.ShoppingTrips = table.freeze({
+	table.freeze({ "Produce", "Bakery", "Pantry", "Checkout" }),
+	table.freeze({ "Pantry", "Snacks", "Drinks", "Checkout" }),
+	table.freeze({ "Drinks", "Dairy", "Snacks", "Checkout" }),
+	table.freeze({ "Home", "Hardware", "Pickup", "Checkout" }),
+	table.freeze({ "Produce", "Snacks", "Dairy", "Checkout" }),
+	table.freeze({ "Home", "Dairy", "Bakery", "Checkout" }),
+})
+
 local blockers = {}
 for _, x in layout.ShelfX do
 	for _, z in layout.ShelfZ do

@@ -9,6 +9,7 @@ local clips = {
 	sweep = { "rbxassetid://12222200", "rbxasset://sounds/action_jump_land.mp3" },
 	splash = { "rbxasset://sounds/impact_water.mp3" },
 	stand = { "rbxasset://sounds/action_get_up.mp3" },
+	pulse = { "rbxassetid://12221944", "rbxasset://sounds/volume_slider.ogg" },
 }
 
 local cues = {
@@ -21,7 +22,9 @@ local cues = {
 	Return = { "tick", .35, 1.08, .26 },
 	Win = { "tick", .37, 1.45, .23 },
 	Start = { "sweep", .24, 1.12, .24 },
-	Time = { "tick", .27, .83, .24 },
+	Time = { "tick", .23, .83, .24 },
+	Pressure = { "pulse", .27, .84, .28 },
+	SlipTension = { "pulse", .27, .64, .40 },
 	Shopper = { "sweep", .28, .89, .24 },
 	Line = { "tap", .16, 1.10, .15 },
 	Slip = { "splash", .26, 1.42, .43 },

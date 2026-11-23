@@ -186,7 +186,7 @@ function Interface.new(parent, config, pay)
 	self.personal = label(top, "My carts", "", 15, 74, 342, 20, 13, INK, BOLD)
 
 	local tip = box(hud, "Shift help", 0, 0, 377, 68, INK, 16)
-	tip.AnchorPoint = Vector2.new(.5, 1)
+	tip.AnchorPoint, tip.Visible = Vector2.new(.5, 1), false
 	outline(tip, WHITE, 1)
 	self.tip, self.tipScale = tip, item("UIScale", "Scale", tip)
 	self.tipTitle = label(tip, "Action", "", 15, 8, 346, 24, 20, GOLD, DISPLAY, CENTER)

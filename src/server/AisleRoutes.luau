@@ -86,27 +86,64 @@ function AisleRoutes.new(layout)
 			end
 		end
 	end
+	self.distances = distances
 	cached[layout] = self
 	return self
 end
 
-function AisleRoutes:closest(position)
-	local nearest, distance = nil, math.huge
+local function inAisles(point)
+	return math.abs(point.X) < 84.5 and point.Z >= -67 and point.Z <= 46
+end
+
+local searchAngles = {}
+for i = 1, 8 do
+	local angle = i * math.pi / 4
+	searchAngles[i] = Vector3.new(math.cos(angle), 0, math.sin(angle))
+end
+
+function AisleRoutes:approach(from, target)
+	if inAisles(target) and self:clear(target, target) then return target end
+	for _, radius in { 2.1, 4.2 } do
+		local chosen, distance = nil, math.huge
+		for _, direction in searchAngles do
+			local option = target + direction * radius
+			if inAisles(option) and self:clear(option, option) then
+				local leg = (option - from).Magnitude
+				if leg < distance then chosen, distance = option, leg end
+			end
+		end
+		if chosen then return chosen end
+	end
+	return nil
+end
+
+function AisleRoutes:bridges(position)
+	local choices = {}
 	for index, node in self.nodes do
 		local offset = node - position
 		local squared = offset:Dot(offset)
-		if squared < distance and self:clear(position, node) then
-			nearest, distance = index, squared
+		if (#choices < 4 or squared < choices[#choices].squared) and self:clear(position, node) then
+			local where = #choices + 1
+			while where > 1 and squared < choices[where - 1].squared do where -= 1 end
+			table.insert(choices, where, { node = index, squared = squared, length = math.sqrt(squared) })
+			if #choices > 4 then table.remove(choices) end
 		end
 	end
-	return nearest
+	return choices
 end
 
 function AisleRoutes:trace(start, finish)
 	if self:clear(start, finish) then return { finish } end
-	local entry = self:closest(start)
-	local exit = self:closest(finish)
+	local starts, ends = self:bridges(start), self:bridges(finish)
+	local entry, exit, cost = nil, nil, math.huge
+	for _, from in starts do
+		for _, to in ends do
+			local candidate = from.length + self.distances[from.node][to.node] + to.length
+			if candidate < cost then entry, exit, cost = from.node, to.node, candidate end
+		end
+	end
 	if not entry or not exit then return {} end
+
 	local route = { self.nodes[entry] }
 	while entry ~= exit do
 		entry = self.nextHop[entry][exit]

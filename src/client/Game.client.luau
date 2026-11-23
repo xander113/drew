@@ -22,6 +22,7 @@ local ShopMenu = require(script.Parent.ShopMenu)
 local ShopperMotion = require(script.Parent.ShopperMotion)
 local ScreenLayout = require(script.Parent.ScreenLayout)
 local SoundEffects = require(script.Parent.SoundEffects)
+local Music = require(script.Parent.Music)
 local Timing = require(shared:WaitForChild("RescueTiming"))
 local effectEvent = shared:WaitForChild("ShiftEffects")
 local rescueInput = shared:WaitForChild("RescueInput")
@@ -39,6 +40,7 @@ local shopActions = {}
 local shopMenu = ShopMenu.new(gui, player, shopActions)
 ShopperMotion.start()
 SoundEffects.prepare()
+local music = Music.new()
 if not RunService:IsStudio() then TeleportService:SetTeleportGui(view:teleportGui()) end
 
 local route = "Loading"
@@ -57,7 +59,7 @@ local function preferredInput()
 	return UserInputService:GetLastInputType()
 end
 local input = preferredInput()
-local warnedDeadline
+local pressureAt = 0
 local function updateLayout()
 	input = preferredInput()
 	local tv = ScreenLayout.isGamepad(input) and GuiService.ViewportDisplaySize == Enum.DisplaySize.Large
@@ -153,9 +155,13 @@ local function refresh(now)
 	ProximityPromptService.Enabled = playing and not carrying and not stopped and not slipped and not shopMenu.mode
 	if room and playing then
 		local seconds = math.max(0, math.ceil(room.deadline - now))
-		if seconds <= 10 and seconds > 0 and warnedDeadline ~= room.deadline then
-			warnedDeadline = room.deadline
-			SoundEffects.play("Time")
+		if room.banked < room.goal and seconds > 0 and seconds <= 12 then
+			if now >= pressureAt then
+				SoundEffects.play("Pressure")
+				pressureAt = now + (if seconds <= 4 then .85 else 2.2)
+			end
+		else
+			pressureAt = 0
 		end
 		view:showShift(room, seconds, player:GetAttribute("ReturnedCarts") or 0, carrying, input)
 		if slipped then
@@ -414,7 +420,14 @@ end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Q, Enum.KeyCode.
 
 for _, attribute in { "CarryingCart", "Stopped", "Slipped", "ReturnedCarts" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
-		if active and attribute == "Slipped" then SoundEffects.play(if player:GetAttribute("Slipped") then "Slip" else "Stand") end
+		if active and attribute == "Slipped" then
+			if player:GetAttribute("Slipped") then
+				SoundEffects.play("SlipTension")
+				SoundEffects.play("Slip")
+			else
+				SoundEffects.play("Stand")
+			end
+		end
 		refresh(Workspace:GetServerTimeNow())
 	end)
 end
@@ -471,11 +484,14 @@ RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 
 	if now >= lastRefresh then
 		lastRefresh = now + .10
 		refresh(now)
+		local room = state.room
+		music:step(active == true and not shopMenu.mode and room ~= nil and room.banked < room.goal, now)
 		if route == "Multi" and os.clock() >= nextBrowse then actions.browse(false) end
 	end
 	local camera = Workspace.CurrentCamera
 	if active then
-		view.tip.Visible = not shopMenu.mode and not shopperScene:step(now, input)
+		local encounterVisible = shopperScene:step(now, input)
+		view.tip.Visible = player:GetAttribute("HasFinishedShift") == true and not shopMenu.mode and not encounterVisible
 		shopMenu.launcher.Visible = not shopperScene.stop and not shopMenu.mode
 		if camera and not shopperScene:camera(now, camera) and camera.CameraType == Enum.CameraType.Scriptable then setCamera() end
 		return

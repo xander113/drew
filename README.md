@@ -8,7 +8,7 @@ Open `Cart-Catcher.rbxl` in Roblox Studio and press **Play**. Choose **Solo mode
 
 Approach a cart and use **Grab cart**. Press **E** on a keyboard, **X** on a gamepad, or tap the prompt. Carts are spread across the front, middle, and back of the store. The edge of each parked cart starts at least 24 studs away from the blue bay on every level. Steer around pallets, restock racks, sale bins, and wet spots, then push the cart into the blue bay. If you step on a wet spot, you drop your cart and take a moment to get back up.
 
-If a shopper stops you, your character stays put until the chat ends. Teammates can see a red **Need help!** marker. Get close and press **Q**, press **Y** on a gamepad, or tap **Help**. Hit the green part of the bar to end the chat early. Shoppers stop you once in a while on Easy and more often on harder levels. The shoppers and Willy Walter wear official Roblox clothes and accessories.
+Shoppers browse different departments on their way to checkout. If one stops you, your character stays put until the chat ends. Teammates can see a red **Need help!** marker. Get close and press **Q**, press **Y** on a gamepad, or tap **Help**. Hit the green part of the bar to end the chat early. Shoppers stop you once in a while on Easy and more often on harder levels. The shoppers and Willy Walter wear official Roblox clothes and accessories. The bottom help banner appears during play after you finish your first shift.
 
 | Level | Time | Solo cart goal | 25-player cart goal | Carts in store | Slip time | Leave fee | Rescue taps | Pay |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -30,11 +30,14 @@ The shop shows preview items when it has no live items. Browse by category, sear
 
 ## Sound
 
-The game plays sounds for menus, cart pickup and return, slips, shopper chats, rescues, and purchases. `src/client/SoundEffects.luau` holds the Roblox clip IDs, volume, and playback speed. The game shares seven local sound slots and uses built-in clips when a store clip fails to load.
+Calm music plays in menus and between shifts. A livelier mix plays while you work toward the cart goal. Both playlists repeat and fade between songs. Music is courtesy of APM Music and licensed for use in Roblox. The tracks are listed in `src/client/Music.luau`. [Roblox music license](https://en.help.roblox.com/hc/en-us/articles/360000927163-Using-Licensed-Music-on-Roblox)
+
+A short cue plays when you slip. The timer pulses in the last 12 seconds while the cart bay still needs carts. `src/client/SoundEffects.luau` holds the sound clips and volume. The game shares seven local sound slots and uses built-in clips when a store clip fails to load.
 
 ## Test and publish
 
-- Use Roblox Studio’s **Server & Clients** test mode to try multiplayer on one machine. Studio runs lobbies and wallets for the current test session. Try a shopper stop with two players to see the camera, portrait, red marker, and rescue. The place comes with R6 player and shopper rigs.
+- Use Roblox Studio’s **Server & Clients** test mode to try multiplayer on one machine. Try a shopper stop with two players to see the camera, portrait, red marker, and rescue. The place comes with R6 player and shopper rigs.
+- Live servers use the same wallet store. For DataStore tests, open a published test copy in Studio and turn on **Enable Studio Access to API Services** under **File → Experience Settings → Security**. Studio uses a separate wallet scope. An unpublished local file keeps wallets for the current test session. Roblox saves the API access setting on the published experience. [Roblox DataStore setup](https://create.roblox.com/docs/cloud-services/data-stores#enable-studio-access)
 - Set **Max Players** to **25** in the published place’s settings. Use the Roblox app to test public listings and private-code joins across servers, then rejoin to check that the wallet saved. [Studio testing](https://create.roblox.com/docs/studio/testing-modes) · [Max Players](https://create.roblox.com/docs/reference/engine/classes/Players#MaxPlayers) · [Roblox teleports](https://create.roblox.com/docs/projects/teleport)
 
 ## Build and edit
