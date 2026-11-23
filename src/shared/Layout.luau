@@ -7,6 +7,8 @@ local layout = {
 	CrossZ = table.freeze({ -62, -13, 39 }),
 	BayX = -33,
 	BayZ = 56,
+	BayWidth = 25,
+	BayDepth = 13,
 	Fixtures = table.freeze({
 		table.freeze({ x = -78, z = 23, width = 8, depth = 12 }),
 		table.freeze({ x = -78, z = 2, width = 8, depth = 12 }),

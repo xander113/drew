@@ -1,5 +1,6 @@
 local DataStoreService = game:GetService("DataStoreService")
 local RunService = game:GetService("RunService")
+local Pay = require(game:GetService("ReplicatedStorage"):WaitForChild("CartCatcher").Pay)
 
 local Wallet = {}
 Wallet.__index = Wallet
@@ -17,7 +18,7 @@ end
 local function read(value)
 	local data = if type(value) == "table" then value else {}
 	return {
-		cents = count(data.cents), receipts = dictionary(data.receipts), purchases = dictionary(data.purchases),
+		cents = Pay.roundCents(count(data.cents)), receipts = dictionary(data.receipts), purchases = dictionary(data.purchases),
 		items = dictionary(data.items), rounds = count(data.rounds), wins = count(data.wins), carts = count(data.carts),
 	}
 end
@@ -82,6 +83,7 @@ end
 function Wallet:queue(id, entry)
 	local profile = self.profiles[id]
 	if not profile or profile.queued[entry.id] or profile.saved.receipts[entry.id] or profile.saved.purchases[entry.id] then return end
+	if entry.cents then entry.cents = Pay.roundCents(entry.cents) end
 	entry.issued = os.time()
 	if self.store then
 		profile.queued[entry.id] = true

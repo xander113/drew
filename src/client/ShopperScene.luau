@@ -1,6 +1,8 @@
 local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local ScreenLayout = require(script.Parent.ScreenLayout)
+local SoundEffects = require(script.Parent.SoundEffects)
 local AvatarPreview = require(script.Parent.AvatarPreview)
 
 local ShopperScene = {}
@@ -99,15 +101,23 @@ function ShopperScene.new(parent, player, remote, timing, helpRange)
 	return self
 end
 
+function ShopperScene:setInput(input, tv)
+	self.touch, self.tv = input == Enum.UserInputType.Touch, tv
+	self:resize()
+end
+
 function ShopperScene:resize()
 	local dims = self.gui.AbsoluteSize
-	local phone = dims.X < dims.Y
-	self.speechScale.Scale = math.clamp((dims.X - 26) / 640, .42, 1)
-	self.portraitScale.Scale = if phone then .76 else 1
-	self.helpScale.Scale = math.clamp((dims.X - 26) / 366, .42, 1)
-	self.speech.Position = UDim2.new(.5, 0, 1, if phone then -103 else -27)
+	if dims.X < 60 or dims.Y < 100 then return end
+	local portrait = dims.X < dims.Y
+	local limit = if self.tv then 1.18 else 1
+	self.speechScale.Scale = ScreenLayout.scale(dims, 640, 365, 26, limit, .62)
+	self.portraitScale.Scale = ScreenLayout.scale(dims, 215, 425, 22, if portrait then .76 else limit, .55)
+	self.helpScale.Scale = ScreenLayout.scale(dims, 366, 355, 26, limit, .84)
+	local bottom = if self.touch and portrait then -105 else -25
+	self.speech.Position = UDim2.new(.5, 0, 1, bottom)
 	self.help.Position = self.speech.Position
-	self.portrait.Position = UDim2.new(1, if phone then -15 else -38, 0, if phone then 114 else 34)
+	self.portrait.Position = UDim2.new(1, if portrait then -15 else -35, 0, if portrait then 112 else 29)
 end
 
 function ShopperScene:portraitOf(shopper)
@@ -230,6 +240,7 @@ function ShopperScene:step(now, inputType)
 		local beat = math.clamp(math.floor((now - scene.start) / section) + 1, 1, #scene.lines)
 		if beat ~= self.beat then
 			self.beat = beat
+			if beat > 1 then SoundEffects.play("Line") end
 			self.speaker.Text = if beat == 2 then "You" else scene.name
 			self.line.Text = scene.lines[beat]
 		end

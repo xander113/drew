@@ -1,3 +1,5 @@
+local ScreenLayout = require(script.Parent.ScreenLayout)
+local SoundEffects = require(script.Parent.SoundEffects)
 local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
 
@@ -102,7 +104,10 @@ local function action(view, parent, caption, x, y, width, height, tint, callback
 		if not GuiService.ReducedMotionEnabled then tween(button, .08, { Position = offset(0, 4) }) end
 	end)
 	button.MouseButton1Up:Connect(function() tween(button, .13, { Position = offset(0, 0) }) end)
-	button.Activated:Connect(callback)
+	button.Activated:Connect(function()
+		SoundEffects.play("Menu")
+		callback()
+	end)
 	local key = options.key or caption
 	button:SetAttribute("MenuControl", key)
 	view.controls[key] = button
@@ -141,7 +146,10 @@ function Interface.new(parent, config, pay)
 	menu.Size = scale(1, 1)
 	self.menu = menu
 
-	local header = box(menu, "WWMS", 0, 0, 468, 46)
+	local menuScroll = scroll(menu, "Menu viewport", 0, 0, 0, 0, 0, 0)
+	menuScroll.Size, menuScroll.ScrollBarThickness = scale(1, 1), 5
+	self.menuScroll = menuScroll
+	local header = box(menuScroll, "WWMS", 0, 0, 468, 46)
 	self.header, self.headerScale = header, item("UIScale", "Scale", header)
 	local logo = box(header, "Shop mark", 0, 0, 87, 43, BLUE, 16)
 	outline(logo, WHITE, 2)
@@ -151,7 +159,7 @@ function Interface.new(parent, config, pay)
 	label(coin, "Coin mark", "W", 0, 0, 26, 26, 15, INK, DISPLAY, CENTER)
 	self.balance = label(wallet, "Balance", "Walbucks …", 42, 0, 152, 42, 16, INK, BOLD)
 
-	local ticket = box(menu, "Ticket", 0, 0, 468, 488)
+	local ticket = box(menuScroll, "Ticket", 0, 0, 468, 488)
 	self.ticket, self.ticketScale = ticket, item("UIScale", "Scale", ticket)
 	box(ticket, "Ticket shadow", 0, 8, 468, 488, INK, 24)
 	local surface = box(ticket, "Paper", 0, 0, 468, 488, PAPER, 24)
@@ -186,19 +194,29 @@ function Interface.new(parent, config, pay)
 	return self
 end
 
+function Interface:setInput(input, tv)
+	self.touch, self.tv = input == Enum.UserInputType.Touch, tv
+	self:resize()
+end
+
 function Interface:resize()
 	local size = self.screen.AbsoluteSize
 	if size.X < 70 or size.Y < 135 then return end
-	local portrait = size.X / size.Y < .94
-	local multiplier = math.min(1.14, (size.X - 26) / 468, (size.Y - 76) / 488)
+	local portrait = size.X < size.Y
+	local multiplier = ScreenLayout.scale(size, 468, 564, 27, if self.tv then 1.27 else 1.12, .78)
 	local x = math.floor((size.X - 468 * multiplier) / 2)
+	local top = math.max(math.ceil(58 * multiplier), math.floor((size.Y - 488 * multiplier) * .52))
 	self.ticketScale.Scale = multiplier
-	self.ticket.Position = offset(x, math.max(63, math.floor((size.Y - 488 * multiplier) * .52)))
+	self.ticket.Position = offset(x, top)
 	self.headerScale.Scale = multiplier
-	self.header.Position = offset(x, 9)
-	self.hudScale.Scale = math.min(1, (size.X - 24) / 376, size.Y / 385)
+	self.header.Position = offset(x, 8)
+	local height = math.max(size.Y, top + 488 * multiplier + 20)
+	self.menuScroll.CanvasSize = offset(0, height)
+	self.menuScroll.ScrollingEnabled = height > size.Y + 1
+
+	self.hudScale.Scale = ScreenLayout.scale(size, 376, 385, 24, if self.tv then 1.20 else 1.04, .82)
 	self.tipScale.Scale = self.hudScale.Scale
-	self.tip.Position = UDim2.new(.5, 0, 1, if portrait then -108 else -18)
+	self.tip.Position = UDim2.new(.5, 0, 1, if self.touch and portrait then -105 else -18)
 end
 
 function Interface:setWallet(amount, ready, saving)
@@ -216,7 +234,7 @@ local function title(parent, value, subtitle)
 end
 
 local function back(view, parent, callback, text)
-	return action(view, parent, text or "Back", 23, 17, 84, 33, LIGHT_BLUE, callback, { radius = 10, size = 17 })
+	return action(view, parent, text or "Back", 23, 14, 86, 40, LIGHT_BLUE, callback, { radius = 10, size = 17 })
 end
 
 local function levelChoices(view, parent, draft, crew, startY, selectLevel)
@@ -244,6 +262,7 @@ local function levelChoices(view, parent, draft, crew, startY, selectLevel)
 		local goal = view.config.shift(index, crew).goal
 		label(row, "Goal", "Return " .. goal, 304, 0, 108, 50, 17, INK, BOLD, CENTER)
 		row.Activated:Connect(function()
+			SoundEffects.play("Select")
 			selectLevel(index)
 			paint(index)
 		end)
@@ -329,6 +348,7 @@ function Interface:showPage(route, model, actions)
 		outline(field, BLUE)
 		field.Font, field.TextSize = DISPLAY, 31
 		field.TextColor3, field.PlaceholderColor3 = INK, BLUE
+		field.ShowNativeInput = true
 		field.ClearTextOnFocus, field.Selectable = false, true
 		field.Text, field.PlaceholderText = model.code, "Lobby code"
 		field:GetPropertyChangedSignal("Text"):Connect(function()
@@ -445,9 +465,13 @@ function Interface:teleportGui()
 	local background = fill(item("Frame", "Blue", gui), BLUE)
 	background.Size = scale(1, 1)
 	local mark = label(background, "Title", "Cart Catcher!", 0, 0, 350, 80, 45, GOLD, DISPLAY, CENTER)
-	mark.AnchorPoint, mark.Position = Vector2.new(.5, .5), scale(.5, .46)
+	mark.AnchorPoint, mark.Position, mark.Size = Vector2.new(.5, .5), scale(.5, .44), scale(.84, .17)
+	mark.TextScaled = true
+	item("UITextSizeConstraint", "Title size", mark).MaxTextSize = 50
 	local line = label(background, "Help", "One moment…", 0, 0, 250, 35, 20, WHITE, BOLD, CENTER)
-	line.AnchorPoint, line.Position = Vector2.new(.5, .5), scale(.5, .55)
+	line.AnchorPoint, line.Position, line.Size = Vector2.new(.5, .5), scale(.5, .57), scale(.7, .075)
+	line.TextScaled = true
+	item("UITextSizeConstraint", "Message size", line).MaxTextSize = 23
 	return gui
 end
 

@@ -1,4 +1,5 @@
 local ServerStorage = game:GetService("ServerStorage")
+local Headwear = require(game:GetService("ReplicatedStorage"):WaitForChild("CartCatcher").Headwear)
 
 local catalog = require(script.Parent.OutfitCatalog)
 local closet = ServerStorage:WaitForChild("OfficialWardrobe")
@@ -13,13 +14,9 @@ function Wardrobe.shopper(character, random)
 	for _, id in { choose(random, catalog.Shirts), choose(random, catalog.Pants) } do
 		closet[tostring(id)]:Clone().Parent = character
 	end
-	local headwear = if random:NextInteger(1, 3) == 1 then catalog.Hats else catalog.Hair
-	local accessory = closet[tostring(choose(random, headwear))]:Clone()
-	local handle = accessory:FindFirstChild("Handle")
-	if handle then
-		handle.Anchored, handle.CanCollide, handle.CanTouch, handle.CanQuery, handle.Massless = false, false, false, false, true
-	end
-	character.Humanoid:AddAccessory(accessory)
+	local hat = random:NextInteger(1, 3) == 1
+	local accessory = closet[tostring(choose(random, if hat then catalog.Hats else catalog.Hair))]:Clone()
+	Headwear.fit(character, accessory, if hat then "Hat" else "Hair", { Instance = Instance })
 end
 
 return Wardrobe

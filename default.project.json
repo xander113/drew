@@ -7,11 +7,15 @@
       "$properties": {
         "Ambient": [0.47, 0.55, 0.68],
         "OutdoorAmbient": [0.61, 0.69, 0.79],
-        "Brightness": 2.2,
+        "Brightness": 2.08,
         "ClockTime": 15.6,
         "EnvironmentDiffuseScale": 0.7,
         "EnvironmentSpecularScale": 0.35,
         "GlobalShadows": true
+      },
+      "WWMS Palette": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": { "Brightness": -0.025, "Contrast": 0.06, "Saturation": 0.13 }
       }
     },
     "Workspace": {

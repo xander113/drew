@@ -20,6 +20,8 @@ local ShopperScene = require(script.Parent.ShopperScene)
 local CartEffects = require(script.Parent.CartEffects)
 local ShopMenu = require(script.Parent.ShopMenu)
 local ShopperMotion = require(script.Parent.ShopperMotion)
+local ScreenLayout = require(script.Parent.ScreenLayout)
+local SoundEffects = require(script.Parent.SoundEffects)
 local Timing = require(shared:WaitForChild("RescueTiming"))
 local effectEvent = shared:WaitForChild("ShiftEffects")
 local rescueInput = shared:WaitForChild("RescueInput")
@@ -36,6 +38,7 @@ local cartEffects = CartEffects.new(view.hud, player)
 local shopActions = {}
 local shopMenu = ShopMenu.new(gui, player, shopActions)
 ShopperMotion.start()
+SoundEffects.prepare()
 if not RunService:IsStudio() then TeleportService:SetTeleportGui(view:teleportGui()) end
 
 local route = "Loading"
@@ -47,17 +50,32 @@ local message = ""
 local active, savedFov
 local filmStart = Workspace:GetServerTimeNow()
 local lastRefresh, nextBrowse = 0, 0
-local input = UserInputService:GetLastInputType()
+local function preferredInput()
+	local preferred = UserInputService.PreferredInput
+	if preferred == Enum.PreferredInput.Touch then return Enum.UserInputType.Touch end
+	if preferred == Enum.PreferredInput.Gamepad then return Enum.UserInputType.Gamepad1 end
+	return UserInputService:GetLastInputType()
+end
+local input = preferredInput()
+local warnedDeadline
+local function updateLayout()
+	input = preferredInput()
+	local tv = ScreenLayout.isGamepad(input) and GuiService.ViewportDisplaySize == Enum.DisplaySize.Large
+	view:setInput(input, tv)
+	shopperScene:setInput(input, tv)
+	cartEffects:resize(tv)
+	shopMenu:setInput(input, tv)
+end
 local controls
 local menuOpenedWithEscape = false
-local shopReturn, shopLoading
+local shopReturn, shopLoading, shopQueued
 local function modal(mode)
 	shopMenu:show(mode)
 	if controls then
 		if mode and active then controls:Disable() else controls:Enable() end
 	end
-	if string.match(input.Name, "^Gamepad") then
-		GuiService.SelectedObject = if mode then shopMenu.back else nil
+	if ScreenLayout.isGamepad(input) then
+		GuiService.SelectedObject = if mode then shopMenu.back elseif not active then view.first else nil
 	end
 end
 
@@ -101,7 +119,7 @@ local function setStatus()
 end
 
 local function focus(force)
-	if not active and string.match(input.Name, "^Gamepad") then
+	if not active and not shopMenu.mode and ScreenLayout.isGamepad(input) then
 		local current = GuiService.SelectedObject
 		if force or not current or not current:IsDescendantOf(view.screen) then
 			GuiService.SelectedObject = view.first
@@ -135,6 +153,10 @@ local function refresh(now)
 	ProximityPromptService.Enabled = playing and not carrying and not stopped and not slipped and not shopMenu.mode
 	if room and playing then
 		local seconds = math.max(0, math.ceil(room.deadline - now))
+		if seconds <= 10 and seconds > 0 and warnedDeadline ~= room.deadline then
+			warnedDeadline = room.deadline
+			SoundEffects.play("Time")
+		end
 		view:showShift(room, seconds, player:GetAttribute("ReturnedCarts") or 0, carrying, input)
 		if slipped then
 			view.tipTitle.Text, view.tipText.Text = "You slipped!", "Wait to get back up."
@@ -158,6 +180,10 @@ local function accept(update)
 	local previous = state.room
 	state, model.room = update, update.room
 	local room = update.room
+	if room and (not previous or room.phase ~= previous.phase) then
+		if room.phase == "Active" then SoundEffects.play("Start")
+		elseif room.phase == "Results" and room.result and room.result.outcome == "Time" then SoundEffects.play("Time") end
+	end
 	if room then
 		if route ~= "Level" or not previous or previous.phase ~= room.phase or not room.host then
 			route = room.phase
@@ -239,33 +265,48 @@ function actions.send(action, arg, extra)
 end
 
 local function shopList()
-	if shopLoading or shopMenu.mode ~= "Shop" then return end
-	shopLoading = true
+	if shopMenu.mode ~= "Shop" then return end
+	if shopLoading then shopQueued = true return end
+	shopLoading, shopQueued = true, false
+	shopMenu.buy.Active, shopMenu.buy.Selectable = false, false
+	local filters = table.clone(shopMenu.filters)
 	task.spawn(function()
-		local ok, response = pcall(request.InvokeServer, request, "Shop")
+		local ok, response = pcall(request.InvokeServer, request, "Shop", filters)
 		shopLoading = false
 		if shopMenu.mode ~= "Shop" then return end
-		if ok and response.items then
-			shopMenu:catalog(response.items)
+		if shopQueued then
+			task.delay(.26, shopList)
+		elseif ok and response.shop then
+			shopMenu:catalog(response.shop)
+		elseif ok and response.loading then
+			task.delay(.55, shopList)
 		else
 			shopMenu.notice.Text = "Could not load the shop. Try again."
 		end
 	end)
 end
 
+function shopActions.load()
+	shopList()
+end
+
 function actions.shop()
 	shopReturn = if active then "Pause" else nil
+	SoundEffects.play("Shop")
 	modal("Shop")
 	shopList()
 end
 
 function shopActions.toggle()
 	if not active then return end
+	SoundEffects.play("Menu")
 	if shopMenu.mode then modal(nil) else modal("Pause") end
 end
 
 function shopActions.back()
-	if shopMenu.mode == "Shop" then
+	if shopMenu.mode == "Shop" and shopMenu.categoryView then
+		shopMenu:setCategoryView(false)
+	elseif shopMenu.mode == "Shop" then
 		modal(shopReturn)
 	elseif shopMenu.mode == "Leave" then
 		modal("Pause")
@@ -295,6 +336,7 @@ end
 function shopActions.buy(key)
 	if busy then return end
 	busy = true
+	SoundEffects.play("Buy")
 	shopMenu.notice.Text = "Opening purchase…"
 	task.spawn(function()
 		local ok, response = pcall(request.InvokeServer, request, "Buy", key)
@@ -304,10 +346,16 @@ function shopActions.buy(key)
 end
 
 MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, _, purchased)
-	if userId == player.UserId and purchased then task.delay(2, shopList) end
+	if userId == player.UserId and purchased then
+		SoundEffects.play("Owned")
+		task.delay(2, shopList)
+	end
 end)
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(who, _, purchased)
-	if who == player and purchased then task.delay(1, shopList) end
+	if who == player and purchased then
+		SoundEffects.play("Owned")
+		task.delay(1, shopList)
+	end
 end)
 ContextActionService:BindActionAtPriority("WWMSMenu", function(_, actionState)
 	if active and actionState == Enum.UserInputState.Begin and not GuiService.MenuIsOpen and not UserInputService:GetFocusedTextBox() then
@@ -316,6 +364,13 @@ ContextActionService:BindActionAtPriority("WWMSMenu", function(_, actionState)
 	end
 	return Enum.ContextActionResult.Pass
 end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.P, Enum.KeyCode.ButtonL3)
+ContextActionService:BindActionAtPriority("WWMSBack", function(_, actionState)
+	if shopMenu.mode and actionState == Enum.UserInputState.Begin and not GuiService:IsModalDialog() then
+		shopActions.back()
+		return Enum.ContextActionResult.Sink
+	end
+	return Enum.ContextActionResult.Pass
+end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.ButtonB)
 UserInputService.InputBegan:Connect(function(event)
 	if active and event.KeyCode == Enum.KeyCode.Escape then menuOpenedWithEscape = true end
 end)
@@ -327,7 +382,23 @@ end)
 changed.OnClientEvent:Connect(accept)
 effectEvent.OnClientEvent:Connect(function(kind, payload)
 	if not active then return end
-	if kind == "Stopped" and payload.worker == player and shopMenu.mode then modal(nil) end
+	if kind == "Stopped" and payload.worker == player then
+		SoundEffects.play("Shopper")
+		if shopMenu.mode then modal(nil) end
+	elseif kind == "Grab" then
+		SoundEffects.play("Grab")
+	elseif kind == "Returned" then
+		if payload.full then SoundEffects.cheer() elseif payload.worker == player then SoundEffects.play("Return") end
+	elseif kind == "RescueStart" then
+		SoundEffects.play("Help")
+	elseif kind == "RescueStep" then
+		SoundEffects.play("Hit")
+	elseif kind == "RescueEnd" then
+		if payload.outcome == "Hit" then SoundEffects.play("Hit")
+		elseif payload.outcome == "Miss" then SoundEffects.play("Miss") end
+	elseif kind == "Freed" and payload.worker == player and payload.outcome == "Helped" then
+		SoundEffects.play("Hit")
+	end
 	if kind == "Grab" or kind == "Returned" then
 		cartEffects:receive(kind, payload)
 	else
@@ -343,6 +414,7 @@ end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Q, Enum.KeyCode.
 
 for _, attribute in { "CarryingCart", "Stopped", "Slipped", "ReturnedCarts" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
+		if active and attribute == "Slipped" then SoundEffects.play(if player:GetAttribute("Slipped") then "Slip" else "Stand") end
 		refresh(Workspace:GetServerTimeNow())
 	end)
 end
@@ -356,10 +428,24 @@ end
 for _, attribute in { "WalbucksCents", "WalletReady", "WalletSaving" } do
 	player:GetAttributeChangedSignal(attribute):Connect(updateWallet)
 end
-UserInputService.LastInputTypeChanged:Connect(function(last)
-	input = last
+local function switchInput()
+	updateLayout()
+	if shopMenu.mode and ScreenLayout.isGamepad(input) and not GuiService.SelectedObject then
+		GuiService.SelectedObject = shopMenu.back
+	end
 	focus(false)
 	refresh(Workspace:GetServerTimeNow())
+end
+UserInputService:GetPropertyChangedSignal("PreferredInput"):Connect(switchInput)
+UserInputService.LastInputTypeChanged:Connect(switchInput)
+GuiService:GetPropertyChangedSignal("SelectedObject"):Connect(function()
+	local selected = GuiService.SelectedObject
+	if shopMenu.mode then
+		ScreenLayout.showSelection(shopMenu.scroll, selected)
+	else
+		ScreenLayout.showSelection(view.menuScroll, selected)
+		if view.list then ScreenLayout.showSelection(view.list, selected, view.ticketScale.Scale) end
+	end
 end)
 Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(setCamera)
 player.CharacterAdded:Connect(function(character)
@@ -367,7 +453,7 @@ player.CharacterAdded:Connect(function(character)
 end)
 view.screen:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() view:resize() end)
 
-view:resize()
+updateLayout()
 updateWallet()
 render()
 task.spawn(function()
@@ -390,6 +476,7 @@ RunService:BindToRenderStep("WWMSCinematic", Enum.RenderPriority.Camera.Value + 
 	local camera = Workspace.CurrentCamera
 	if active then
 		view.tip.Visible = not shopMenu.mode and not shopperScene:step(now, input)
+		shopMenu.launcher.Visible = not shopperScene.stop and not shopMenu.mode
 		if camera and not shopperScene:camera(now, camera) and camera.CameraType == Enum.CameraType.Scriptable then setCamera() end
 		return
 	end

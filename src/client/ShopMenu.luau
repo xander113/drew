@@ -2,6 +2,8 @@ local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
 
 local AvatarPreview = require(script.Parent.AvatarPreview)
+local ScreenLayout = require(script.Parent.ScreenLayout)
+local SoundEffects = require(script.Parent.SoundEffects)
 
 local ShopMenu = {}
 ShopMenu.__index = ShopMenu
@@ -34,11 +36,21 @@ local function label(parent, value, size)
 	return text
 end
 
-local function button(parent, value, color, invoke)
+local function button(parent, value, color, invoke, size)
 	local btn = item("TextButton", parent, color, 14)
-	btn.Text, btn.TextSize, btn.Font = value, 21, DISPLAY
+	btn.Text, btn.TextSize, btn.Font = value, size or 21, DISPLAY
 	btn.TextColor3 = if color == BLUE then WHITE else INK
-	btn.Activated:Connect(invoke)
+	btn.Active, btn.Selectable = true, true
+	local focus = Instance.new("UIStroke")
+	focus.Color, focus.Thickness = INK, 3
+	focus.ApplyStrokeMode, focus.Transparency, focus.Parent = Enum.ApplyStrokeMode.Border, 1, btn
+	btn.SelectionGained:Connect(function() focus.Transparency = 0 end)
+	btn.SelectionLost:Connect(function() focus.Transparency = 1 end)
+	btn.Activated:Connect(function()
+		if not btn.Active then return end
+		SoundEffects.play("Menu")
+		invoke()
+	end)
 	return btn
 end
 
@@ -56,46 +68,64 @@ function ShopMenu.new(parent, player, actions)
 	local gui = item("ScreenGui", parent)
 	gui.Name, gui.DisplayOrder, gui.ResetOnSpawn = "WWMS Menu", 25, false
 	gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
-	local self = setmetatable({ gui = gui, player = player, actions = actions, rows = {} }, ShopMenu)
-	local launcher = button(gui, "Menu", BLUE, function() actions.toggle() end)
-	launcher.AnchorPoint = Vector2.new(1, 0)
-	launcher.Position, launcher.Size = UDim2.new(1, -14, 0, 10), pixel(88, 44)
-	launcher.Visible, self.launcher = false, launcher
+	local self = setmetatable({
+		gui = gui, player = player, actions = actions, filters = { page = 1, categoryPage = 1, category = "", query = "" },
+	}, ShopMenu)
+	self.launcher = button(gui, "Menu", BLUE, function() actions.toggle() end)
+	self.launcher.AnchorPoint, self.launcher.Visible = Vector2.new(1, 0), false
+	self.launchScale = item("UIScale", self.launcher)
 
 	local dim = item("Frame", gui, INK)
 	dim.BackgroundTransparency, dim.Size, dim.Active = .34, UDim2.fromScale(1, 1), true
 	dim.Visible, self.dim = false, dim
-	local panel = item("Frame", dim, PAPER, 25)
-	panel.Position, panel.AnchorPoint = UDim2.fromScale(.5, .5), Vector2.new(.5, .5)
-	self.panel, self.panelScale = panel, item("UIScale", panel)
-	local outline = Instance.new("UIStroke")
-	outline.Color, outline.Thickness, outline.Parent = BLUE, 5, panel
+	local scroll = item("ScrollingFrame", dim)
+	scroll.Size, scroll.BackgroundTransparency = UDim2.fromScale(1, 1), 1
+	scroll.BorderSizePixel, scroll.ScrollBarThickness = 0, 5
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	self.scroll = scroll
 
-	self.title = label(panel, "", 37)
+	local panel = item("Frame", scroll, PAPER, 25)
+	panel.SelectionGroup = true
+	panel.SelectionBehaviorUp, panel.SelectionBehaviorDown = Enum.SelectionBehavior.Stop, Enum.SelectionBehavior.Stop
+	panel.SelectionBehaviorLeft, panel.SelectionBehaviorRight = Enum.SelectionBehavior.Stop, Enum.SelectionBehavior.Stop
+	self.panel, self.panelScale = panel, item("UIScale", panel)
+	local outline = item("UIStroke", panel)
+	outline.Color, outline.Thickness = BLUE, 5
+
+	self.title = label(panel, "", 35)
 	self.balance = label(panel, "", 16)
 	self.balance.TextXAlignment = Enum.TextXAlignment.Right
 	self.back = button(panel, "Back", PALE, function() actions.back() end)
 	self.info = label(panel, "", 16)
-	self.info.TextWrapped = true
-	self.info.TextTruncate = Enum.TextTruncate.None
+	self.info.TextWrapped, self.info.TextTruncate = true, Enum.TextTruncate.None
 	self.notice = label(panel, "", 15)
-	self.notice.TextWrapped = true
-	self.notice.TextTruncate = Enum.TextTruncate.None
+	self.notice.TextWrapped, self.notice.TextTruncate = true, Enum.TextTruncate.None
 	self.notice.TextColor3 = rgb(159, 43, 58)
-
 	self.first = button(panel, "Resume", BLUE, function() actions.main(self.mode) end)
 	self.second = button(panel, "Shop", GOLD, function() actions.extra(self.mode) end)
 	self.third = button(panel, "Leave shift", PALE, function() self:show("Leave") end)
 
+	self.categoryButton = button(panel, "Categories", GOLD, function()
+		self:setCategoryView(not self.categoryView)
+	end, 18)
+	self.search = item("TextBox", panel, WHITE, 12)
+	self.search.Font, self.search.TextSize, self.search.TextColor3 = DISPLAY, 16, INK
+	self.search.Text, self.search.PlaceholderText, self.search.ClearTextOnFocus = "", "Find an item", false
+	self.search.ShowNativeInput, self.search.Selectable = true, true
+	self.search.FocusLost:Connect(function(enter)
+		if enter then self:find() end
+	end)
+	self.searchButton = button(panel, "Find", PALE, function() self:find() end, 16)
 	self.list = item("ScrollingFrame", panel)
 	self.list.BackgroundTransparency, self.list.BorderSizePixel = 1, 0
-	self.list.ScrollBarThickness = 4
-	self.list.ScrollingDirection = Enum.ScrollingDirection.Y
-	self.itemTitle = label(panel, "", 18)
+	self.list.ScrollBarThickness, self.list.ScrollingDirection = 5, Enum.ScrollingDirection.Y
+	self.prev = button(panel, "Prev", PALE, function() self:turn(-1) end, 17)
+	self.next = button(panel, "Next", PALE, function() self:turn(1) end, 17)
+	self.page = label(panel, "", 14)
+	self.page.TextXAlignment = Enum.TextXAlignment.Center
+	self.itemTitle = label(panel, "", 17)
 	self.buy = button(panel, "Buy", BLUE, function()
-		if self.buy.Active and self.selected then
-			actions.buy(self.selected.key)
-		end
+		if self.selected then actions.buy(self.selected.key) end
 	end)
 
 	local stage = item("ViewportFrame", panel, PALE, 21)
@@ -111,37 +141,66 @@ function ShopMenu.new(parent, player, actions)
 	stand.Anchored, stand.CanCollide = true, false
 	stand.Size, stand.Color = Vector3.new(.25, 4.5, 4.5), BLUE
 	stand.CFrame = CFrame.new(0, -3.12, 0) * CFrame.Angles(0, 0, math.pi / 2)
-	self.previewText = label(stage, "Your preview", 15)
-	self.previewText.TextXAlignment = Enum.TextXAlignment.Center
-	self.previewText.Size, self.previewText.Position = UDim2.new(1, 0, 0, 26), UDim2.new(0, 0, 1, -29)
+	local previewText = label(stage, "Your preview", 15)
+	previewText.TextXAlignment = Enum.TextXAlignment.Center
+	previewText.Size, previewText.Position = UDim2.new(1, 0, 0, 26), UDim2.new(0, 0, 1, -29)
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() self:resize() end)
 	return self
+end
+
+function ShopMenu:setInput(input, tv)
+	self.gamepad, self.tv = ScreenLayout.isGamepad(input), tv
+	self:resize()
 end
 
 function ShopMenu:resize()
 	local size = self.gui.AbsoluteSize
 	if size.X < 60 or size.Y < 100 then return end
-	local shop = self.mode == "Shop"
-	local width = if shop then (if size.X < size.Y then 423 else 720) else 410
-	local height = if shop then 492 else 405
-	local left = if width < 500 then 199 else 318
-	self.panel.Size = pixel(width, height)
-	self.panelScale.Scale = math.min(1, (size.X - 24) / width, (size.Y - 24) / height)
-	place(self.back, 20, 18, 83, 34)
-	place(self.balance, width - 217, 18, 194, 33)
-	place(self.title, 22, 58, width - 44, 48)
+	local narrow = size.X < 570
+	local shop, short = self.mode == "Shop", size.Y < 470 and not narrow
+	local width = if shop then (if narrow then 427 else 752) else 410
+	local height = if shop then (if short then 435 else 512) else 405
+	local left = if width < 500 then 211 else 329
+	local amount = ScreenLayout.scale(size, width, height, 24, if self.tv then 1.2 else 1, .75)
+	self.launchScale.Scale = ScreenLayout.scale(size, 97, 52, 20, if self.tv then 1.18 else 1)
+	local menuY = if size.X < 620 then math.min(155, math.floor(size.X / 3.52)) else 10
+	self.launcher.Position, self.launcher.Size = UDim2.new(1, -14, 0, menuY), pixel(96, 48)
+	self.panel.Size, self.panelScale.Scale = pixel(width, height), amount
+	local canvas = math.max(size.Y, height * amount + 26)
+	self.scroll.CanvasSize = pixel(0, canvas)
+	self.scroll.ScrollingEnabled = canvas > size.Y + 1
+	self.panelHome = pixel(math.floor((size.X - width * amount) / 2), math.max(12, math.floor((size.Y - height * amount) / 2)))
+	if self.move then self.move:Cancel(); self.move = nil end
+	self.panel.Position = self.panelHome
+	place(self.back, 20, 17, 87, 42)
+	place(self.balance, width - 220, 17, 196, 37)
+	place(self.title, 22, 59, width - 44, 43)
 	place(self.info, 22, 114, width - 44, 46)
-	place(self.notice, 23, height - 46, width - 46, 32)
+	place(self.notice, 23, height - 35, width - 46, 26)
 	place(self.first, 22, 169, width - 44, 49)
 	place(self.second, 22, 229, width - 44, 49)
 	place(self.third, 22, 289, width - 44, 49)
-	place(self.list, 22, 137, left, 218)
-	place(self.itemTitle, 22, 359, left, 30)
-	place(self.buy, 22, 394, left, 43)
-	place(self.stage, left + 40, 110, width - left - 63, 322)
-	for _, row in self.list:GetChildren() do
-		row.Size = UDim2.new(1, -7, 0, 52)
+	local listY
+	if short then
+		place(self.categoryButton, 22, 110, if self.categoryView then left else 122, 42)
+		place(self.search, 150, 110, left - 190, 42)
+		place(self.searchButton, left - 30, 110, 52, 42)
+		listY = 160
+	else
+		place(self.categoryButton, 22, 110, left, 41)
+		place(self.search, 22, 158, left - 62, 42)
+		place(self.searchButton, left - 30, 158, 52, 42)
+		listY = if self.categoryView then 158 else 207
 	end
+	place(self.list, 22, listY, left, height - 150 - listY)
+	local footer = height - 143
+	local mid = math.floor(left * .5)
+	place(self.prev, 22, footer, 62, 38)
+	place(self.page, mid - 20, footer, 87, 38)
+	place(self.next, 22 + left - 62, footer, 62, 38)
+	place(self.itemTitle, 22, height - 100, left, 23)
+	place(self.buy, 22, height - 72, left, 39)
+	place(self.stage, left + 40, 110, width - left - 63, height - 150)
 end
 
 function ShopMenu:setBalance(value)
@@ -167,34 +226,112 @@ function ShopMenu:preview()
 	if self.avatar then self.avatar:PivotTo(CFrame.Angles(0, -.16, 0)) end
 end
 
+local function enable(btn, active)
+	btn.Active, btn.Selectable, btn.AutoButtonColor = active, active, active
+end
+
 function ShopMenu:select(row)
 	self.selected = row
-	self.itemTitle.Text = row.name
-	local owned = row.count or 0
-	local preview = row.kind == "Preview" or row.available == false
-	self.buy.Text = if preview then "Preview only"
-		elseif row.kind == "Pass" and owned > 0 then "Owned"
-		else "Buy · " .. row.price .. " Robux"
-	self.buy.Active = not preview and (row.kind ~= "Pass" or owned == 0)
-	self.buy.AutoButtonColor = self.buy.Active
+	self.itemTitle.Text = if row then row.name else ""
+	local owned = if row then row.count or 0 else 0
+	local preview = row and (row.kind == "Preview" or row.available == false)
+	self.buy.Text = if not row then "Pick an item" elseif preview then "Preview only"
+		elseif row.kind == "Pass" and owned > 0 then "Owned" else "Buy · " .. row.price .. " Robux"
+	enable(self.buy, row ~= nil and not preview and (row.kind ~= "Pass" or owned == 0))
 	self.buy.BackgroundColor3 = if self.buy.Active then BLUE else PALE
 	self.buy.TextColor3 = if self.buy.Active then WHITE else INK
 	self.notice.Text = if owned > 0 then "Owned: " .. owned else ""
 	self:preview()
 end
 
-function ShopMenu:catalog(rows)
-	self.rows = rows
+function ShopMenu:find()
+	local text = self.search.Text
+	local limit = utf8.offset(text, 65)
+	self.filters.query = if limit then string.sub(text, 1, limit - 1) else text
+	self.filters.page = 1
+	self.actions.load()
+end
+
+function ShopMenu:turn(delta)
+	if not self.data then return end
+	local key, limit = if self.categoryView then "categoryPage" else "page", if self.categoryView then self.data.categoryPages else self.data.pages
+	local target = math.clamp(self.filters[key] + delta, 1, limit)
+	if target ~= self.filters[key] then
+		self.filters[key] = target
+		self.actions.load()
+	end
+end
+
+function ShopMenu:setCategoryView(show)
+	self.categoryView = show
+	self.search.Visible, self.searchButton.Visible, self.buy.Visible = not show, not show, not show
+	self.categoryButton.Text = if show then "Back to items" elseif self.filters.category ~= "" then self.filters.category else "Categories"
+	self.categoryButton.TextTruncate = Enum.TextTruncate.AtEnd
+	if show then self.itemTitle.Text = "Pick a category" end
+	self:resize()
+	self:populate()
+end
+
+function ShopMenu:populate()
+	local data = self.data
 	self.list:ClearAllChildren()
-	self.list.CanvasSize = pixel(0, #rows * 58)
-	local selected
-	for index, row in rows do
-		local btn = button(self.list, row.name, PALE, function() self:select(row) end)
-		btn.Position, btn.Size = pixel(0, (index - 1) * 58), UDim2.new(1, -7, 0, 52)
+	self.list.CanvasPosition = Vector2.zero
+	local labels, selected = {}, nil
+	if self.categoryView then
+		table.insert(labels, { name = "All items", category = "" })
+		for _, name in (data and data.categories or {}) do table.insert(labels, { name = name, category = name }) end
+	else
+		labels = data and data.items or {}
+	end
+	self.list.CanvasSize = pixel(0, #labels * 53)
+	local previous
+	for index, row in labels do
+		local btn = button(self.list, row.name, PALE, function()
+			if self.categoryView then
+				self.filters.category, self.filters.page = row.category, 1
+				self:setCategoryView(false)
+				self.actions.load()
+			else
+				self:select(row)
+			end
+		end, 17)
+		btn.Position, btn.Size = pixel(0, (index - 1) * 53), UDim2.new(1, -8, 0, 47)
 		btn.TextTruncate = Enum.TextTruncate.AtEnd
+		btn.SelectionGained:Connect(function() ScreenLayout.showSelection(self.list, btn, self.panelScale.Scale) end)
+		btn.NextSelectionUp = previous or self.categoryButton
+		if previous then previous.NextSelectionDown = btn else
+			self.categoryButton.NextSelectionDown = btn
+			self.search.NextSelectionDown, self.searchButton.NextSelectionDown = btn, btn
+		end
+		btn.NextSelectionDown = self.next
+		previous = btn
 		if self.selected and self.selected.key == row.key then selected = row end
 	end
-	if selected or rows[1] then self:select(selected or rows[1]) end
+	local page, total = 1, 1
+	if data then
+		page = if self.categoryView then data.categoryPage else data.page
+		total = if self.categoryView then data.categoryPages else data.pages
+	end
+	self.page.Text = string.format("%d / %d", page, total)
+	enable(self.prev, page > 1)
+	enable(self.next, page < total)
+	if previous then previous.NextSelectionDown = if self.next.Active then self.next elseif self.prev.Active then self.prev elseif not self.categoryView and self.buy.Active then self.buy else self.categoryButton end
+	if not self.categoryView then
+		self:select(selected or labels[1])
+		if data and #labels == 0 then self.itemTitle.Text = "No items found" end
+		if not data then self.itemTitle.Text = "Looking for items…" end
+		if previous and not self.next.Active and not self.prev.Active and self.buy.Active then previous.NextSelectionDown = self.buy end
+		self.buy.NextSelectionUp = if self.next.Active then self.next elseif self.prev.Active then self.prev else previous
+	end
+	if self.gamepad and (not GuiService.SelectedObject or not GuiService.SelectedObject:IsDescendantOf(self.panel)) then
+		GuiService.SelectedObject = self.categoryButton
+	end
+end
+
+function ShopMenu:catalog(data)
+	self.data = data
+	self.filters.page, self.filters.categoryPage, self.filters.category = data.page, data.categoryPage, data.category
+	self:setCategoryView(self.categoryView == true)
 end
 
 function ShopMenu:show(mode)
@@ -206,15 +343,15 @@ function ShopMenu:show(mode)
 	end
 	local shop, leave = mode == "Shop", mode == "Leave"
 	self.first.Visible, self.second.Visible, self.third.Visible = not shop, not shop, mode == "Pause"
-	self.stage.Visible, self.list.Visible, self.buy.Visible, self.itemTitle.Visible = shop, shop, shop, shop
+	for _, widget in { self.stage, self.list, self.buy, self.itemTitle, self.prev, self.next, self.page, self.categoryButton, self.search, self.searchButton } do
+		widget.Visible = shop
+	end
 	self.info.Visible = not shop
 	self.notice.Text = ""
 	if shop then
 		self.title.Text = "WWMS Shop"
-		self.buy.Active, self.buy.Text = false, "Pick an item"
-		self.itemTitle.Text = if #self.rows == 0 then "Looking for items…" else ""
-		self:catalog(self.rows)
-		if #self.rows == 0 then self:preview() end
+		self.search.Text = self.filters.query
+		self:setCategoryView(false)
 	elseif leave then
 		self.title.Text, self.first.Text, self.second.Text = "Leave shift?", "Keep playing", "Leave shift"
 		self.info.Text = "Leaving now costs up to " .. self.actions.fee() .. " Walbucks."
@@ -222,10 +359,12 @@ function ShopMenu:show(mode)
 		self.title.Text, self.first.Text, self.second.Text = "Shift menu", "Resume", "Shop"
 		self.info.Text = "The shift keeps going."
 	end
+	self.scroll.CanvasPosition = Vector2.zero
 	self:resize()
-	if self.move then self.move:Cancel() end
-	self.panel.Position = UDim2.new(.5, 0, .5, 16)
-	self.move = tween(self.panel, .25, { Position = UDim2.fromScale(.5, .5) })
+	if self.panelHome then
+		self.panel.Position = self.panelHome + pixel(0, 15)
+		self.move = tween(self.panel, .25, { Position = self.panelHome })
+	end
 end
 
 function ShopMenu:step(dt)

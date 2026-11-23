@@ -19,21 +19,22 @@ local scenes = {
 
 local names = { "Sam", "Jo", "Ari", "Lee", "Max", "Kim", "Ray", "Pat" }
 local rgb = Color3.fromRGB
-local shirts = { rgb(210, 84, 64), rgb(64, 146, 98), rgb(143, 106, 190), rgb(244, 172, 80), rgb(81, 141, 190), rgb(207, 107, 147) }
-local skins = { rgb(239, 188, 151), rgb(171, 112, 77), rgb(120, 77, 65), rgb(242, 208, 175) }
-local shoes = rgb(30, 49, 78)
+local skins = {
+	rgb(249, 219, 192), rgb(238, 196, 164), rgb(216, 168, 133), rgb(198, 146, 108),
+	rgb(179, 124, 86), rgb(158, 105, 74), rgb(139, 88, 63), rgb(121, 76, 58),
+	rgb(101, 61, 48), rgb(77, 48, 40),
+}
 
 local function shopperModel(parent, id, position, random)
 	local model = rig:Clone()
 	model.Name = names[(id - 1) % #names + 1]
-	local shirt = shirts[(id - 1) % #shirts + 1]
-	local skin = skins[(id - 1) % #skins + 1]
+	local skin = skins[random:NextInteger(1, #skins)]
 	for _, limb in model:GetChildren() do
 		if limb:IsA("BasePart") then
 			limb.CanCollide, limb.CanTouch, limb.CanQuery = false, false, false
 			limb.CastShadow = true
 			limb.Massless = limb ~= model.PrimaryPart
-			limb.Color = if limb.Name == "Torso" then shirt elseif string.find(limb.Name, "Leg") then shoes else skin
+			limb.Color = skin
 		end
 	end
 	model.PrimaryPart.Anchored = true

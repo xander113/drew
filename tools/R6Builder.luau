@@ -31,11 +31,11 @@ return function(roblox, name, tint)
 	face.Name, face.Face, face.Texture = "face", enum.NormalId.Front, "rbxasset://textures/face.png"
 	face.Parent = head
 	local headAttachment = new("Attachment")
-	headAttachment.Name, headAttachment.Position, headAttachment.Parent = "HatAttachment", v(0, .6, 0), head
+	headAttachment.Name, headAttachment.CFrame, headAttachment.Parent = "HatAttachment", cf.new(0, .71, 0), head
 	local hairAttachment = new("Attachment")
-	hairAttachment.Name, hairAttachment.Position, hairAttachment.Parent = "HairAttachment", v(0, .6, 0), head
+	hairAttachment.Name, hairAttachment.CFrame, hairAttachment.Parent = "HairAttachment", cf.new(0, .82, 0), head
 	local faceAttachment = new("Attachment")
-	faceAttachment.Name, faceAttachment.Position, faceAttachment.Parent = "FaceFrontAttachment", v(0, 0, -.6), head
+	faceAttachment.Name, faceAttachment.CFrame, faceAttachment.Parent = "FaceFrontAttachment", cf.new(0, 0, -.6), head
 
 	local function joint(jointName, a, b, c0, c1)
 		local motor = new("Motor6D")

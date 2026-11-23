@@ -299,7 +299,6 @@ end
 local function handle(entry, action, arg, extra)
 	local room = entry.room
 	if entry.loading or entry.travel then return { error = "Please wait." } end
-	if action == "Shop" then return { items = shop:list(entry.player) } end
 	if action == "Buy" then return { error = shop:buy(entry.player, arg) } end
 	if action == "Leave" then
 		-- The native disconnect path is checked by leaveRoom as well.
@@ -376,6 +375,13 @@ request.OnServerInvoke = function(player, action, arg, extra)
 		entry.listAt = now + 1.5
 		local ok, rows = pcall(browse)
 		return if ok then { rows = rows } else { error = "Could not look for lobbies." }
+	end
+	if action == "Shop" then
+		if now < (entry.shopAt or 0) or entry.shopBusy then return { error = "Please wait." } end
+		entry.shopAt, entry.shopBusy = now + .25, true
+		local ok, page = pcall(shop.page, shop, player, arg)
+		entry.shopBusy = false
+		return if ok then { shop = page, loading = page == nil } else { error = "Could not load the shop." }
 	end
 	if now < entry.requestAt or entry.busy then return { error = "Please wait." } end
 	entry.requestAt = now + .25

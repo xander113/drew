@@ -5,6 +5,8 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
+local ScreenLayout = require(script.Parent.ScreenLayout)
+
 local CartEffects = {}
 CartEffects.__index = CartEffects
 
@@ -54,15 +56,20 @@ end
 
 function CartEffects.new(hud, player)
 	local self = setmetatable({ player = player, random = Random.new(), carts = {}, bursts = 0 }, CartEffects)
+	local wrap = Instance.new("Frame")
+	wrap.Name, wrap.BackgroundTransparency = "Cart cheer area", 1
+	wrap.Size, wrap.AnchorPoint = UDim2.fromOffset(255, 50), Vector2.new(.5, 0)
+	wrap.Parent = hud
+	self.wrap, self.fit = wrap, Instance.new("UIScale")
+	self.fit.Parent = wrap
+	hud:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() self:resize() end)
 	local chip = Instance.new("TextLabel")
 	chip.Name = "Cart cheer"
-	chip.Size = UDim2.fromOffset(255, 50)
-	chip.AnchorPoint = Vector2.new(.5, 0)
-	chip.Position = UDim2.new(.5, 0, 0, 118)
+	chip.Size = UDim2.fromScale(1, 1)
 	chip.BackgroundColor3, chip.TextColor3 = COLORS[1], INK
 	chip.Text, chip.TextSize, chip.Font = "", 27, Enum.Font.FredokaOne
 	chip.BorderSizePixel, chip.Visible = 0, false
-	chip.Parent = hud
+	chip.Parent = wrap
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius, corner.Parent = UDim.new(0, 19), chip
 	self.scale = Instance.new("UIScale")
@@ -81,6 +88,15 @@ function CartEffects.new(hud, player)
 		end
 	end)
 	return self
+end
+
+function CartEffects:resize(tv)
+	if tv ~= nil then self.tv = tv end
+	local size = self.wrap.Parent.AbsoluteSize
+	if size.X < 60 or size.Y < 100 then return end
+	local score = ScreenLayout.scale(size, 376, 385, 24, if self.tv then 1.2 else 1.04, .82)
+	self.fit.Scale = ScreenLayout.scale(size, 255, 330, 24, if self.tv then 1.2 else 1.04, .85)
+	self.wrap.Position = UDim2.new(.5, 0, 0, math.ceil(score * 111 + 9))
 end
 
 function CartEffects:cheer(message, color)

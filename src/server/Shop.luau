@@ -3,14 +3,17 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local RunService = game:GetService("RunService")
 
 local settings = require(script.Parent.ShopItems)
+local Catalog = require(script.Parent.ShopCatalog)
 local Shop = {}
 Shop.__index = Shop
 
 local PREVIEWS = {
-	{ key = "sample:1", name = "Blue Crew", kind = "Preview", color = { 22, 110, 232 } },
-	{ key = "sample:2", name = "Gold Shift", kind = "Preview", color = { 255, 197, 49 } },
-	{ key = "sample:3", name = "Mint Crew", kind = "Preview", color = { 68, 183, 134 } },
+	{ key = "sample:1", name = "Blue Crew", kind = "Preview", category = "Uniforms", color = { 22, 110, 232 } },
+	{ key = "sample:2", name = "Gold Shift", kind = "Preview", category = "Crew gear", color = { 255, 197, 49 } },
+	{ key = "sample:3", name = "Mint Crew", kind = "Preview", category = "Uniforms", color = { 68, 183, 134 } },
 }
+
+local previewIndex = Catalog.build(PREVIEWS)
 
 local function itemKey(kind, id)
 	return kind .. ":" .. id
@@ -19,11 +22,16 @@ end
 local function add(list, entries, kind, id, info)
 	if type(id) ~= "number" or id <= 0 or entries[itemKey(kind, id)] then return end
 	local key = itemKey(kind, id)
-	local name = info.Name or info.name
-	local price = info.PriceInRobux or info.priceInRobux or info.price
+	local name = info.Name or info.displayName or info.name
+	local priceBlock = if type(info.priceInformation) == "table" then info.priceInformation else {}
+	local price = tonumber(info.PriceInRobux or info.priceInRobux or info.price or priceBlock.defaultPriceInRobux or priceBlock.price)
 	if type(name) ~= "string" or type(price) ~= "number" or price < 0 or info.IsForSale == false or info.isForSale == false then return end
 	local override = settings.Overrides[key]
-	local item = { key = key, id = id, kind = kind, name = if override and override.name then override.name else name, price = price, color = override and override.color }
+	local item = {
+		key = key, id = id, kind = kind, name = if override and override.name then override.name else name,
+		price = price, color = override and override.color,
+		category = if override and override.category then override.category elseif kind == "Pass" then "Passes" else "Items",
+	}
 	entries[key] = item
 	table.insert(list, item)
 end
@@ -44,26 +52,25 @@ local function passes(list, entries)
 	end
 	local key = HttpService:GetSecret("WWMS_SHOP_KEY")
 	local page
-	for _ = 1, 8 do
+	local seen = {}
+	repeat
 		local url = string.format("https://apis.roblox.com/game-passes/v1/universes/%d/game-passes/creator?pageSize=100&passView=Full", game.GameId)
 		if page then url ..= "&pageToken=" .. HttpService:UrlEncode(page) end
 		local response = HttpService:RequestAsync({ Url = url, Method = "GET", Headers = { ["x-api-key"] = key } })
 		assert(response.Success, "Game pass list is unavailable")
 		local data = HttpService:JSONDecode(response.Body)
 		for _, row in data.gamePasses or data.data or {} do
-			local id = row.gamePassId or row.id
-			if type(id) == "number" and not entries[itemKey("Pass", id)] then
-				local ok, info = pcall(MarketplaceService.GetProductInfoAsync, MarketplaceService, id, Enum.InfoType.GamePass)
-				if ok then add(list, entries, "Pass", id, info) end
-			end
+			add(list, entries, "Pass", row.gamePassId or row.id, row)
 		end
 		page = data.nextPageToken
 		if type(page) ~= "string" or page == "" then break end
-	end
+		assert(not seen[page], "The game pass list repeated a page")
+		seen[page] = true
+	until false
 end
 
 function Shop.new(wallet)
-	local self = setmetatable({ wallet = wallet, items = {}, rows = {}, updateAt = 0 }, Shop)
+	local self = setmetatable({ wallet = wallet, items = {}, index = previewIndex, updateAt = 0 }, Shop)
 	if not RunService:IsStudio() then
 		MarketplaceService.ProcessReceipt = function(receipt)
 			local key = itemKey("Product", receipt.ProductId)
@@ -103,24 +110,20 @@ function Shop:refresh()
 				table.insert(rows, item)
 			end
 		end
-		table.sort(rows, function(a, b) return a.key < b.key end)
-		self.items, self.rows = items, rows
+		self.items, self.index = items, if #rows > 0 then Catalog.build(rows) else previewIndex
 	end
 	self.updateAt, self.loading = os.clock() + 90, false
 end
 
-function Shop:list(player)
+function Shop:page(player, filters)
 	self:refresh()
-	if #self.rows == 0 then return PREVIEWS end
-	local rows = {}
-	for _, item in self.rows do
+	if self.loading then return nil end
+	return Catalog.page(self.index, filters, function(item)
 		local row = table.clone(item)
 		row.count = self.wallet:quantity(player, row.key)
-		row.available = not RunService:IsStudio()
-		if row.kind == "Pass" and row.count == 0 and self:ownsPass(player, row.id) then row.count = 1 end
-		table.insert(rows, row)
-	end
-	return rows
+		row.available = not RunService:IsStudio() and row.kind ~= "Preview"
+		return row
+	end)
 end
 
 function Shop:buy(player, key)

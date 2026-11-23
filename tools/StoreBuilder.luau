@@ -1,11 +1,12 @@
 local addDetails = require("./StoreDetails")
+local Headwear = require("../src/shared/Headwear")
 
 local function build(roblox, layout, makeR6, closet, outfit)
 	local Instance, Vector3, CFrame = roblox.Instance, roblox.Vector3, roblox.CFrame
 	local Color3, UDim2, Enum = roblox.Color3, roblox.UDim2, roblox.Enum
 	local rgb, v = Color3.fromRGB, Vector3.new
 
-	local blue = rgb(0, 104, 236)
+	local blue = rgb(0, 91, 226)
 	local royal = rgb(21, 66, 168)
 	local navy = rgb(16, 36, 72)
 	local ink = rgb(29, 45, 73)
@@ -14,8 +15,8 @@ local function build(roblox, layout, makeR6, closet, outfit)
 	local sky = rgb(103, 208, 250)
 	local mint = rgb(131, 221, 178)
 	local coral = rgb(245, 133, 109)
-	local steel = rgb(135, 153, 178)
-	local floor = rgb(221, 229, 237)
+	local steel = rgb(111, 135, 167)
+	local floor = rgb(209, 221, 233)
 	local concrete = rgb(167, 182, 200)
 	local glass = rgb(157, 217, 252)
 	local store = Instance.new("Model")
@@ -85,7 +86,7 @@ local function build(roblox, layout, makeR6, closet, outfit)
 	local markers = folder(store, "Markers")
 
 	box(lot, "Ground", v(246, 2, 226), v(0, -2, 17), concrete, true)
-	box(lot, "Car Park", v(230, .9, 69), v(0, -.54, 96), rgb(74, 92, 117), true)
+	box(lot, "Car Park", v(230, .9, 69), v(0, -.54, 96), rgb(64, 83, 110), true)
 	box(lot, "Front Pavement", v(190, 1.1, 18), v(0, -.54, 77), floor, true)
 	box(lot, "Crew Patio", v(32, .6, 23), v(0, -.28, 106), navy, true)
 	box(lot, "Crew Stripe", v(32, .04, .35), v(0, .035, 96), yellow)
@@ -229,7 +230,7 @@ local function build(roblox, layout, makeR6, closet, outfit)
 	local returnSign = box(bay, "Cart Hole Sign", v(25, 4.8, .7), v(bx, 7.3, 63.4), blue)
 	text(returnSign, Enum.NormalId.Front, "CART HOLE", "P U S H   C A R T S   H E R E", yellow)
 	box(bay, "Cart Hole Beacon", v(25, .3, .86), v(bx, 9.81, 63.4), mint, false, Enum.Material.Neon)
-	mark(markers, "CartHole", CFrame.new(bx, 3, bz), v(25, 6, 13))
+	mark(markers, "CartHole", CFrame.new(bx, 3, bz), v(layout.BayWidth, 6, layout.BayDepth))
 
 	local mascotStage = folder(store, "Willy Walter Stage")
 	box(mascotStage, "Plinth", v(14, .65, 9), v(25, .325, 54), royal, true)
@@ -249,21 +250,8 @@ local function build(roblox, layout, makeR6, closet, outfit)
 	local shoulder = mascot.Torso["Right Shoulder"]
 	shoulder.C0 = shoulder.C0 * CFrame.Angles(.1, 0, 2.0)
 	for _, id in { outfit.shirt, outfit.pants } do closet[tostring(id)]:Clone().Parent = mascot end
-	for _, id in { outfit.hair, outfit.hat } do
-		local accessory = closet[tostring(id)]:Clone()
-		local handle = accessory.Handle
-		local mount = handle:FindFirstChildWhichIsA("Attachment")
-		local position = mount and mascot.Head:FindFirstChild(mount.Name)
-		if position then
-			handle.CFrame = mascot.Head.CFrame * position.CFrame * mount.CFrame:Inverse()
-		else
-			handle.CFrame = mascot.Head.CFrame * CFrame.new(0, .5, 0) * accessory.AttachmentPoint:Inverse()
-		end
-		handle.Anchored, handle.CanCollide, handle.CanTouch, handle.CanQuery, handle.Massless = false, false, false, false, true
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0, weld.Part1, weld.Parent = mascot.Head, handle, handle
-		accessory.Parent = mascot
-	end
+	Headwear.fit(mascot, closet[tostring(outfit.hair)]:Clone(), "Hair", roblox)
+	Headwear.fit(mascot, closet[tostring(outfit.hat)]:Clone(), "Hat", roblox)
 
 	local plaque = part(mascotStage, "Mascot Plaque", v(8, 1.35, .32), base * CFrame.new(0, -1.9, -4.1), navy)
 	text(plaque, Enum.NormalId.Front, "WILLY WALTER", nil, yellow)
